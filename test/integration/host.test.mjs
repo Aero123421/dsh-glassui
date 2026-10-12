@@ -17,6 +17,7 @@ describe('Host half (dist/index.js)', () => {
     assert.throws(() => host.Config({ tint: 101 }))
     assert.throws(() => host.Config({ wallpaper: 'beach' }))
     assert.throws(() => host.Config({ exclude: 'x'.repeat(1001) }))
+    assert.throws(() => host.Config({ wallpaperUrl: 'x'.repeat(2049) }))
   })
 
   it('injects boot rows on every render, reading live values each time', async () => {

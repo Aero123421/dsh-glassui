@@ -4,7 +4,15 @@
  * Styling uses DSH's own tokens (styles.css), so the page matches DSH and turns
  * to glass with the rest of the app.
  */
-import { useEffect, useId, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
+import {
+  useEffect,
+  useId,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react'
 import { SURFACE_KINDS } from '../../shared/dom.ts'
 import {
   WALLPAPER_CHOICES,
@@ -90,6 +98,34 @@ function Switch(props: { checked: boolean; label: string; disabled?: boolean; on
   )
 }
 
+function navigateRadios(event: KeyboardEvent<HTMLDivElement>): void {
+  const options = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
+  const current = options.findIndex(option => option === event.target)
+  if (current < 0) return
+  let next: number
+  switch (event.key) {
+    case 'ArrowRight':
+    case 'ArrowDown':
+      next = (current + 1) % options.length
+      break
+    case 'ArrowLeft':
+    case 'ArrowUp':
+      next = (current + options.length - 1) % options.length
+      break
+    case 'Home':
+      next = 0
+      break
+    case 'End':
+      next = options.length - 1
+      break
+    default:
+      return
+  }
+  event.preventDefault()
+  options[next]?.focus()
+  options[next]?.click()
+}
+
 function Segmented<T extends string>(props: {
   label: string
   value: T
@@ -105,6 +141,7 @@ function Segmented<T extends string>(props: {
       className="glassui-segmented"
       role="radiogroup"
       aria-label={props.label}
+      onKeyDown={navigateRadios}
       style={{ '--glassui-segments': props.options.length, '--glassui-index': index } as CSSProperties}
     >
       <span className="glassui-segmented__thumb" aria-hidden="true" />
@@ -114,6 +151,7 @@ function Segmented<T extends string>(props: {
           type="button"
           role="radio"
           aria-checked={option.value === props.value}
+          tabIndex={option.value === props.value ? 0 : -1}
           className="glassui-segmented__option"
           onClick={() => props.onChange(option.value)}
         >
@@ -181,7 +219,12 @@ function WallpaperPicker(props: {
 }) {
   const { t } = props
   return (
-    <div className="glassui-wallpapers" role="radiogroup" aria-label={t('section.wallpaper')}>
+    <div
+      className="glassui-wallpapers"
+      role="radiogroup"
+      aria-label={t('section.wallpaper')}
+      onKeyDown={navigateRadios}
+    >
       {WALLPAPER_CHOICES.map(choice => {
         const shown = preset(choice)
         const preview = shown ? wallpaperImage(shown, props.scheme) : undefined
@@ -193,6 +236,7 @@ function WallpaperPicker(props: {
             type="button"
             role="radio"
             aria-checked={props.value === choice}
+            tabIndex={props.value === choice ? 0 : -1}
             aria-label={live ? `${name}, ${t('wallpaper.live')}` : name}
             className="glassui-wallpaper"
             data-choice={choice}
@@ -223,7 +267,12 @@ function Diagnostics(props: { state: ControllerState; t: Translate; version: str
   const { diagnostics } = state
   const [copied, setCopied] = useState<'idle' | 'done' | 'failed'>('idle')
   const report = JSON.stringify(
-    { version: props.version, settings: state.settings, diagnostics, userAgent: navigator.userAgent },
+    {
+      version: props.version,
+      settings: { ...state.settings, wallpaperUrl: state.settings.wallpaperUrl ? '[configured]' : '' },
+      diagnostics,
+      userAgent: navigator.userAgent,
+    },
     null,
     2,
   )
@@ -243,6 +292,14 @@ function Diagnostics(props: { state: ControllerState; t: Translate; version: str
         ]
           .filter(Boolean)
           .join(' ')
+  const copy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(report)
+      setCopied('done')
+    } catch {
+      setCopied('failed')
+    }
+  }
   return (
     <div className="glassui-diagnostics">
       <dl className="glassui-facts">
@@ -261,16 +318,7 @@ function Diagnostics(props: { state: ControllerState; t: Translate; version: str
         </dd>
       </dl>
       <div className="glassui-actions">
-        <button
-          type="button"
-          className="glassui-button"
-          onClick={() => {
-            navigator.clipboard.writeText(report).then(
-              () => setCopied('done'),
-              () => setCopied('failed'),
-            )
-          }}
-        >
+        <button type="button" className="glassui-button" onClick={() => void copy()}>
           {copied === 'done' ? t('diag.copied') : t('diag.copy')}
         </button>
       </div>

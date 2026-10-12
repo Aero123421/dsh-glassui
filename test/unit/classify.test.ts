@@ -127,6 +127,13 @@ describe('classify', () => {
     )
   })
 
+  it('keeps elevated dialogs glass when they occupy most of the viewport', () => {
+    assert.equal(
+      classify(sample({ background: 'rgb(255, 254, 255)', boxShadow: panelShadow, area: 0.8 }), signatures)?.kind,
+      'panel',
+    )
+  })
+
   it('turns code blocks and their banners into calm glass', () => {
     assert.deepEqual(classify(sample({ background: 'rgb(249, 250, 250)' }), signatures), {
       kind: 'code',

@@ -75,7 +75,7 @@ async function setup() {
   web = await startWeb({
     dsh,
     world,
-    port: 4300 + Math.floor(Math.random() * 90),
+    port: 0,
     mockUrl: mock.url,
     logFile: log('dsh-web'),
   })
@@ -196,6 +196,113 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
       await page.waitForFunction(() => document.documentElement.getAttribute('data-glassui-sidebar') === 'docked')
       await page.getByRole('radio', { name: 'Floating' }).click()
       await page.waitForFunction(() => document.documentElement.getAttribute('data-glassui-sidebar') === 'floating')
+    } finally {
+      await close()
+    }
+  })
+
+  it('supports keyboard selection for layout and wallpaper', async () => {
+    const { page, errors, close } = await open()
+    try {
+      await openSettings(page)
+      const layout = page.getByRole('radiogroup', { name: 'Sidebar', exact: true })
+      await layout.getByRole('radio', { name: 'Floating', exact: true }).focus()
+      await page.keyboard.press('ArrowRight')
+      assert.equal(
+        await layout.getByRole('radio', { name: 'Docked', exact: true }).getAttribute('aria-checked'),
+        'true',
+      )
+      assert.equal(await page.getAttribute('html', 'data-glassui-sidebar'), 'docked')
+      await page.keyboard.press('Home')
+      assert.equal(
+        await layout.getByRole('radio', { name: 'Floating', exact: true }).getAttribute('aria-checked'),
+        'true',
+      )
+      const wallpaper = page.getByRole('radiogroup', { name: 'Wallpaper', exact: true })
+      await wallpaper.getByRole('radio', { name: 'Automatic', exact: true }).focus()
+      await page.keyboard.press('End')
+      assert.equal(
+        await wallpaper.getByRole('radio', { name: 'Custom', exact: true }).getAttribute('aria-checked'),
+        'true',
+      )
+      await page.keyboard.press('Home')
+      assert.equal(await wallpaper.locator('[tabindex="0"]').count(), 1)
+      assert.equal(
+        await wallpaper.getByRole('radio', { name: 'Automatic', exact: true }).getAttribute('aria-checked'),
+        'true',
+      )
+      assert.deepEqual(errors, [])
+    } finally {
+      await close()
+    }
+  })
+
+  it('fits the settings content in a narrow DSH dialog', async () => {
+    const { page, errors, close } = await open()
+    try {
+      await openSettings(page)
+      for (const width of [800, 600]) {
+        await page.setViewportSize({ width, height: 900 })
+        await page.waitForFunction(() => window.__DSH_GLASSUI_DEBUG__.diagnostics().surfaces.panel > 0)
+        const layout = await page.locator('.glassui-page').evaluate(root => {
+          const box = root.getBoundingClientRect()
+          const outside = [...root.querySelectorAll('button, input, textarea')].filter(element => {
+            const rect = element.getBoundingClientRect()
+            return rect.width > 0 && (rect.left < box.left - 1 || rect.right > box.right + 1)
+          })
+          return {
+            width: root.clientWidth,
+            scroll: root.scrollWidth,
+            outside: outside.map(element => element.className),
+          }
+        })
+        assert.ok(layout.scroll <= layout.width + 1, JSON.stringify(layout))
+        assert.deepEqual(layout.outside, [])
+        const code = page.getByRole('radiogroup', { name: 'Code blocks', exact: true })
+        await code.getByRole('radio', { name: 'Solid', exact: true }).click()
+        // The indicator animates before reaching its selected cell.
+        await page.waitForFunction(() => {
+          const group = document.querySelector('[role="radiogroup"][aria-label="Code blocks"]')
+          const option = group.querySelector('[aria-checked="true"]').getBoundingClientRect()
+          const thumb = group.querySelector('.glassui-segmented__thumb').getBoundingClientRect()
+          return Math.abs(thumb.left - option.left) < 1 && Math.abs(thumb.width - option.width) < 1
+        })
+        await code.getByRole('radio', { name: 'Glass', exact: true }).click()
+        await page.screenshot({ path: join(out, `settings-${width}.png`) })
+      }
+      assert.deepEqual(errors, [])
+    } finally {
+      await close()
+    }
+  })
+
+  it('offers manual copying when the clipboard is unavailable and omits custom image URLs', async () => {
+    const { page, errors, close } = await open()
+    try {
+      await page.route('**/glassui-test.png?*', route =>
+        route.fulfill({
+          status: 200,
+          contentType: 'image/png',
+          body: Buffer.from(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/qXQAAAAASUVORK5CYII=',
+            'base64',
+          ),
+        }),
+      )
+      await openSettings(page)
+      await page.getByRole('radio', { name: 'Custom', exact: true }).click()
+      const url = page.getByLabel('Image URL', { exact: true })
+      await url.fill('/glassui-test.png?token=private-test-value')
+      await url.press('Enter')
+      await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true }))
+      await page.getByRole('button', { name: 'Copy diagnostics', exact: true }).click()
+      const report = await page.getByRole('textbox', { name: 'Diagnostics', exact: true }).inputValue()
+      assert.equal(JSON.parse(report).settings.wallpaperUrl, '[configured]')
+      assert.ok(!report.includes('private-test-value'))
+      await url.fill('')
+      await url.press('Enter')
+      await page.getByRole('radio', { name: 'Automatic', exact: true }).click()
+      assert.deepEqual(errors, [])
     } finally {
       await close()
     }

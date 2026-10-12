@@ -6,7 +6,7 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-10-13
+## [0.1.0] - 2026-10-12
 
 ### Added
 
@@ -31,6 +31,17 @@ All notable changes are documented here. The format follows
 - Support for reduced transparency, increased contrast, reduced motion and
   forced colors.
 - Compatibility check (`npm run compat`) and an E2E suite against real DSH.
+
+### Fixed
+
+- Serialize settings writes, retain early edits while loading or read-only, and ignore completions after disposal.
+- Resume glass after forced colors and update blur for increased contrast.
+- Apply live opt-outs, clean detached surfaces and code header marks, and bound queued scan work.
+- Keep refraction aligned across Chromium 141, 143 and 149; use normal blur for outer shadows and focus rings.
+- Keep large settings dialogs glass instead of treating them as layout panes.
+- Keyboard navigation for wallpaper and layout choices, settings layout in narrow dialogs, and clipboard fallback on HTTP connections.
+- Omit custom image URLs from diagnostics and enforce the same URL length limit on both halves.
+- Include compiled files for GitHub installs and test them in CI.
 
 Supports DSH `>=0.2.0-rc.2 <0.3.0`.
 

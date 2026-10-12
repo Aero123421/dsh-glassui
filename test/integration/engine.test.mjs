@@ -166,6 +166,62 @@ describe('discovery', () => {
 })
 
 describe('coexistence', () => {
+  it('updates live opt-outs, including newly inserted descendants', async () => {
+    const { page, close } = await openFixture()
+    try {
+      await page.evaluate(() => {
+        document.getElementById('main').setAttribute('data-glassui-ignore', '')
+        const container = document.createElement('div')
+        container.innerHTML = '<div id="late-ignored" class="dialog"></div>'
+        document.getElementById('main').append(container)
+      })
+      await settle(page, 10)
+      const found = await surfaces(page)
+      assert.equal(found.composer, undefined)
+      assert.equal(found.code, undefined)
+      assert.equal(found['late-ignored'], undefined)
+      assert.equal(await page.locator('#main [data-glassui-lens], #main [data-glassui-echo]').count(), 0)
+      await page.evaluate(() => document.getElementById('main').removeAttribute('data-glassui-ignore'))
+      await settle(page, 10)
+      assert.equal((await surfaces(page)).composer?.kind, 'composer')
+    } finally {
+      await close()
+    }
+  })
+
+  it('clears code header echoes when the exclusion changes', async () => {
+    const { page, close } = await openFixture()
+    try {
+      await page.evaluate(() => window.__fixture.form.update({ exclude: '#code-header' }))
+      await settle(page)
+      assert.equal(await page.locator('#code-header').getAttribute('data-glassui-echo'), null)
+      assert.notEqual(
+        await page.locator('#code-header').evaluate(element => getComputedStyle(element).backgroundColor),
+        'rgba(0, 0, 0, 0)',
+      )
+    } finally {
+      await close()
+    }
+  })
+
+  it('reclassifies descendants after an ancestor class or inline style changes', async () => {
+    const { page, close } = await openFixture()
+    try {
+      await page.evaluate(() => {
+        const style = document.createElement('style')
+        style.textContent = '.changed .dialog { background: rgb(200, 0, 0) }'
+        document.head.append(style)
+        document.getElementById('flat-card').style.boxShadow = 'var(--dsw-elevation-panel)'
+        document.body.classList.add('changed')
+      })
+      await settle(page, 10)
+      const found = await surfaces(page)
+      assert.equal(found['flat-card']?.kind, 'panel')
+      assert.equal(found.dialog, undefined)
+    } finally {
+      await close()
+    }
+  })
   it('lets another plugin’s token overrides win', async () => {
     const { page, close } = await openFixture()
     try {
@@ -216,6 +272,68 @@ describe('coexistence', () => {
 })
 
 describe('settings', () => {
+  it('updates the material and refraction blur when stronger contrast is requested', async () => {
+    const { page, close } = await openFixture()
+    try {
+      await page.emulateMedia({ contrast: 'more' })
+      await settle(page, 10)
+      assert.equal((await surfaces(page)).composer?.kind, 'composer')
+      await page.waitForFunction(() => {
+        const element = document.getElementById('composer')
+        const filter = document.getElementById(`glassui-lens-${element.getAttribute('data-glassui-lens')}`)
+        return filter?.querySelector('feGaussianBlur')?.getAttribute('stdDeviation') === '19.8'
+      })
+      assert.ok(
+        color(await page.locator('#composer').evaluate(element => getComputedStyle(element).backgroundColor)).a > 0.65,
+      )
+      await page.emulateMedia({ contrast: 'no-preference' })
+      await settle(page, 10)
+      assert.equal((await surfaces(page)).composer?.kind, 'composer')
+    } finally {
+      await close()
+    }
+  })
+  it('resumes when forced colors are cleared, including when enabled during forced colors', async () => {
+    const { page, close } = await openFixture()
+    try {
+      for (const toggle of [false, true]) {
+        await page.emulateMedia({ forcedColors: 'active' })
+        await settle(page)
+        if (toggle) {
+          await page.evaluate(() => window.__fixture.form.update({ enabled: false }))
+          await page.evaluate(() => window.__fixture.form.update({ enabled: true }))
+        }
+        assert.equal(await page.evaluate(() => window.__fixture.debug().diagnostics().running), false)
+        await page.emulateMedia({ forcedColors: 'none' })
+        await settle(page)
+        assert.equal((await surfaces(page)).composer?.kind, 'composer')
+      }
+      await page.evaluate(() => window.__fixture.dispose())
+      await page.emulateMedia({ forcedColors: 'active' })
+      await page.emulateMedia({ forcedColors: 'none' })
+      await settle(page)
+      assert.equal(await page.locator('[data-glassui]').count(), 0)
+    } finally {
+      await close()
+    }
+  })
+
+  it('removes marks from a detached surface before it is reused while disabled', async () => {
+    const { page, close } = await openFixture()
+    try {
+      await page.evaluate(() => {
+        window.savedComposer = document.getElementById('composer')
+        window.savedComposer.remove()
+      })
+      await settle(page)
+      await page.evaluate(() => window.__fixture.form.update({ enabled: false }))
+      await page.evaluate(() => document.body.append(window.savedComposer))
+      await settle(page)
+      assert.equal(await page.locator('[data-glassui-surface], [data-glassui-echo], [data-glassui-lens]').count(), 0)
+    } finally {
+      await close()
+    }
+  })
   it('applies live edits from DSH’s settings form', async () => {
     const { page, close } = await openFixture()
     try {

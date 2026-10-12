@@ -8,8 +8,7 @@ export const NS = 'dsh-glassui'
 
 export const en = {
   title: 'Glass UI',
-  subtitle:
-    'A Liquid Glass-style material for DSH. It is driven by DSH’s theme tokens, so it keeps working with other plugins and across DSH updates.',
+  subtitle: 'Adjust glass, wallpaper and effects.',
   'status.on': 'On',
   'status.off': 'Off',
   'status.forced': 'Paused while high contrast is on',
@@ -41,7 +40,7 @@ export const en = {
   'wallpaper.custom': 'Custom',
   'wallpaper.url.label': 'Image URL',
   'wallpaper.url.placeholder': 'https://… or /path/on/this/server.jpg',
-  'wallpaper.url.invalid': 'Use an https URL, a path on this server, or a base64 image data URL.',
+  'wallpaper.url.invalid': 'Use an http(s) URL, a path on this server, or a base64 image data URL.',
   'section.layout': 'Layout and effects',
   'sidebar.label': 'Sidebar',
   'sidebar.floating': 'Floating',
@@ -91,8 +90,7 @@ type Copy = Readonly<Record<CopyKey, string>>
 
 export const ja: Copy = {
   title: 'Glass UI',
-  subtitle:
-    'DSH に Liquid Glass 風の質感を加えます。DSH のテーマトークンを手がかりに動くので、ほかのプラグインとも、DSH の更新後も、そのまま使えます。',
+  subtitle: 'ガラスの質感、壁紙、表示効果を設定します。',
   'status.on': 'オン',
   'status.off': 'オフ',
   'status.forced': 'ハイコントラストのため一時停止中',
@@ -124,7 +122,7 @@ export const ja: Copy = {
   'wallpaper.custom': 'カスタム',
   'wallpaper.url.label': '画像の URL',
   'wallpaper.url.placeholder': 'https://… または /このサーバー上のパス.jpg',
-  'wallpaper.url.invalid': 'https の URL、このサーバー上のパス、または base64 の画像データ URL を指定してください。',
+  'wallpaper.url.invalid': 'http(s) の URL、このサーバー上のパス、または base64 の画像データ URL を指定してください。',
   'section.layout': 'レイアウトと効果',
   'sidebar.label': 'サイドバー',
   'sidebar.floating': 'フローティング',
@@ -170,8 +168,7 @@ export const ja: Copy = {
 
 export const zh: Copy = {
   title: 'Glass UI',
-  subtitle:
-    '为 DSH 加上 Liquid Glass 风格的材质。它依据 DSH 的主题令牌工作，因此能与其他插件共存，并在 DSH 更新后继续可用。',
+  subtitle: '设置玻璃材质、墙纸和显示效果。',
   'status.on': '已开启',
   'status.off': '已关闭',
   'status.forced': '高对比度模式下已暂停',
@@ -202,7 +199,7 @@ export const zh: Copy = {
   'wallpaper.custom': '自定义',
   'wallpaper.url.label': '图片地址',
   'wallpaper.url.placeholder': 'https://… 或 /本服务器上的路径.jpg',
-  'wallpaper.url.invalid': '请使用 https 地址、本服务器上的路径或 base64 图片数据地址。',
+  'wallpaper.url.invalid': '请使用 http(s) 地址、本服务器上的路径或 base64 图片数据地址。',
   'section.layout': '布局与效果',
   'sidebar.label': '侧栏',
   'sidebar.floating': '悬浮',

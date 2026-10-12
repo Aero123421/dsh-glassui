@@ -123,7 +123,7 @@ export function classify(sample: ElementSample, signatures: Signatures): Classif
       break
   }
   if (PANEL_FILLS.has(fill) && (tier === 'panel' || tier === 'prominent')) {
-    return pane ? undefined : surface('panel', fill, sample)
+    return surface('panel', fill, sample)
   }
   if (fill === 'base' && tier === undefined && sample.area >= BACKDROP_AREA) return surface('backdrop', fill, sample)
   return undefined
