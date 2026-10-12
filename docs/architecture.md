@@ -38,12 +38,12 @@ DSH's theme is a set of CSS custom properties (`--dsw-*`) declared on `<body>` (
 
 [`src/shared/tokens.ts`](../src/shared/tokens.ts) is the single list of upstream names the plugin depends on:
 
-| Group                        | Use                                                                                                       |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Watched fills (11)           | Identify surfaces; redefined on each surface as glass.                                                    |
-| Reserved fills (17)          | Code blocks, bubbles, selections…; watched fills are kept distinct from them so these never become glass. |
-| Elevation tiers (3) + stroke | Re-declared with a glass rim and a transparent _sentinel_ shadow that identifies the tier.                |
-| Menu material (4)            | DSH menus already blur; the plugin adjusts their fill and filter.                                         |
+| Group                        | Use                                                                                                                                  |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Watched fills (13)           | Identify surfaces; redefined on each surface as glass. The two code-block fills are watched only while code blocks are set to glass. |
+| Reserved fills (15)          | Inline code, bubbles, selections…; watched fills are kept distinct from them so these never become glass.                            |
+| Elevation tiers (3) + stroke | Re-declared with a glass rim and a transparent _sentinel_ shadow that identifies the tier.                                           |
+| Menu material (4)            | DSH menus already blur; the plugin adjusts their fill and filter.                                                                    |
 
 `scripts/compat.mjs` checks each name against a DSH release (see [compatibility.md](compatibility.md)).
 
@@ -59,7 +59,7 @@ While it reads, the engine sets `data-glassui-raw` on `<body>`, which suspends t
 
 ### 2. Read, classify, mark
 
-For each candidate element (block-level tags only; text, media, code, tables and rendered Markdown are skipped), the engine reads its computed `background-color`, `box-shadow`, `backdrop-filter` and size, and [`classify()`](../src/client/engine/classify.ts) — a pure function — decides:
+For each candidate element (block-level tags only; text, media, `<pre>`/`<code>` and tables are skipped, and inside rendered Markdown only `<div>`s, where code blocks live, are looked at), the engine reads its computed `background-color`, `box-shadow`, `backdrop-filter` and size, and [`classify()`](../src/client/engine/classify.ts) — a pure function — decides:
 
 | Kind       | Rule                                                                                                                                                                            |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -68,9 +68,12 @@ For each candidate element (block-level tags only; text, media, code, tables and
 | `panel`    | A layer, floating, elevated, overlay or base fill **and** a panel or prominent elevation (read from the sentinel color).                                                        |
 | `menu`     | Its `backdrop-filter` equals DSH's menu material.                                                                                                                               |
 | `smoke`    | Toast or tooltip fill.                                                                                                                                                          |
+| `code`     | A code block or its banner. A denser glass without sheen or pointer light, so code stays easy to read.                                                                          |
 | `backdrop` | A sidebar- or input-filled pane covering more than half the viewport, or a base-filled one covering a quarter without elevation. It becomes transparent so the wallpaper shows. |
 
 The verdict is written as attributes (`data-glassui-surface`, `-fill`, `-paint`, `-float`). A surface nested in another surface of the same fill is marked `data-glassui-flat` and turns transparent instead of stacking glass.
+
+Some components pass their fill on to a part through a variable of their own — DSH's code block paints its header with the block's fill this way. Such a part inherits the surface's glass color and would add a second layer. The engine recognizes a descendant whose background is exactly its surface's glass color, marks it `data-glassui-echo`, and clears its background, so every surface stays one layer of glass.
 
 ### 3. Keep it correct
 
@@ -140,7 +143,7 @@ The Host declares the settings with DSH's schema library; every field is `volati
 
 ## Shutdown
 
-`GlassEngine.stop()` disconnects every observer and listener, removes the dynamic stylesheet, the probes and the SVG filters, removes the root attributes and custom properties, and sweeps every `data-glassui-*` attribute it may have left on DSH or plugin elements (the public opt-in/opt-out attributes are left alone). The integration and E2E tests assert that the page is then identical to a page without the plugin.
+`GlassEngine.stop()` disconnects every observer and listener, removes the dynamic stylesheet, the probes and the SVG filters, removes the root attributes and custom properties, and sweeps every `data-glassui-*` attribute (surfaces, echoes, lenses) it may have left on DSH or plugin elements (the public opt-in/opt-out attributes are left alone). The integration and E2E tests assert that the page is then identical to a page without the plugin.
 
 ## Accessibility
 
@@ -152,4 +155,4 @@ The Host declares the settings with DSH's schema library; every field is `volati
 | `forced-colors: active`        | The plugin stays off entirely.                          |
 | No `backdrop-filter` support   | Fills at least 90% opaque.                              |
 
-Code blocks, inline code, message bubbles and the other reserved fills keep their exact colors.
+Code blocks are a denser glass (at least 54% opaque at the default tint) without sheen or pointer light, and can be kept solid. Inline code, message bubbles and the other reserved fills keep their exact colors.

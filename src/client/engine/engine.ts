@@ -12,6 +12,7 @@
  */
 import { nudgeApart, parseColor, type Rgba } from '../../shared/color.ts'
 import {
+  ATTR_ECHO,
   ATTR_FILL,
   ATTR_FLAT,
   ATTR_FLOAT,
@@ -30,6 +31,7 @@ import {
 import type { GlassSettings } from '../../shared/settings.ts'
 import { buildStylesheet } from '../../shared/stylesheet.ts'
 import {
+  CODE_FILLS,
   DARK_ATTRIBUTE,
   FILL_KEYS,
   FILL_TOKENS,
@@ -89,7 +91,7 @@ export const STYLESHEET_MARKER = '/* dsh-glassui:'
 export const FRAME_BUDGET_MS = 8
 
 /** Kinds stacked under a surface of the same fill turn transparent instead of adding glass. */
-const STACKING_KINDS: ReadonlySet<SurfaceKind> = new Set(['sidebar', 'composer', 'panel', 'smoke'])
+const STACKING_KINDS: ReadonlySet<SurfaceKind> = new Set(['sidebar', 'composer', 'panel', 'smoke', 'code'])
 
 interface Tagged {
   kind: SurfaceKind
@@ -103,6 +105,8 @@ interface Decision {
   verdict: Classification | undefined
   area: number
   untag: boolean
+  /** The element repaints the glass color of the surface it sits in. */
+  echo?: boolean
 }
 
 /** Scan counters. */
@@ -184,6 +188,7 @@ export class GlassEngine {
   private ambiguous: FillKey[] = []
 
   private readonly tagged = new Map<Element, Tagged>()
+  private readonly echoes = new Set<Element>()
   private readonly roots = new Set<Element>()
   private readonly singles = new Set<Element>()
   /** Elements whose marks were just removed; they are classified again in the next frame. */
@@ -247,6 +252,7 @@ export class GlassEngine {
       this.lenses.setBlur(this.blurPx())
     }
     if (previous?.exclude !== settings.exclude) this.updateExclude(true)
+    if (previous?.codeBlocks !== settings.codeBlocks) this.updateCodeBlocks()
     this.applyPresentation()
   }
 
@@ -323,6 +329,7 @@ export class GlassEngine {
     this.ownSheet?.remove()
     this.ownSheet = undefined
     this.tagged.clear()
+    this.echoes.clear()
     this.signatures = undefined
     this.rawKey = ''
     this.expected.clear()
@@ -401,6 +408,26 @@ export class GlassEngine {
     this.ownSheet = style
   }
 
+  /** Code fills switch between watched (glass) and reserved (solid): re-read and rescan. */
+  private updateCodeBlocks(): void {
+    if (this.settings?.codeBlocks !== 'glass') {
+      for (const [element, entry] of [...this.tagged]) if (entry.kind === 'code') this.untag(element)
+      this.syncLenses()
+      this.changed()
+    }
+    this.rawKey = ''
+    this.paletteChanged()
+  }
+
+  private codeGlass(): boolean {
+    return this.settings?.codeBlocks === 'glass'
+  }
+
+  /** Watched fills under the current settings. */
+  private watchedFills(): FillKey[] {
+    return this.codeGlass() ? [...FILL_KEYS] : FILL_KEYS.filter(fill => !CODE_FILLS.has(fill))
+  }
+
   private updateExclude(rescan: boolean): void {
     const selector = validSelector(this.doc, this.settings?.exclude ?? '')
     this.invalidExclude = selector === undefined
@@ -430,20 +457,26 @@ export class GlassEngine {
    */
   private refreshPalette(): boolean {
     const raw = this.probes.raw()
-    const key = [...raw.watched.values(), ...raw.reserved].join('|') + this.scheme()
+    const watched = this.watchedFills()
+    // With solid code blocks, the code fills are reserved like any other content fill.
+    const reserved = [
+      ...raw.reserved,
+      ...FILL_KEYS.filter(fill => !watched.includes(fill)).map(fill => raw.watched.get(fill) ?? UNSET),
+    ]
+    const key = [...raw.watched.values(), ...raw.reserved, watched.length].join('|') + this.scheme()
     const changed = key !== this.rawKey
     this.rawKey = key
     const parsed = (value: string): Rgba | undefined => (value === UNSET ? undefined : parseColor(value))
     const nudged = nudgeApart(
-      FILL_KEYS.map(fill => [fill, parsed(raw.watched.get(fill) ?? UNSET)] as const),
-      raw.reserved.map(parsed).filter((value): value is Rgba => value !== undefined),
+      watched.map(fill => [fill, parsed(raw.watched.get(fill) ?? UNSET)] as const),
+      reserved.map(parsed).filter((value): value is Rgba => value !== undefined),
     )
     this.sheet.setNudges(nudgeRules(nudged, this.scheme() === 'dark'))
 
     const fills = new Map<string, FillKey>()
     const seen = new Map<string, FillKey[]>()
     this.missing = []
-    for (const fill of FILL_KEYS) {
+    for (const fill of watched) {
       if (raw.watched.get(fill) === UNSET) {
         this.missing.push(fill)
         continue
@@ -576,6 +609,13 @@ export class GlassEngine {
     const filter = (node: Node): number => {
       const element = node as Element
       const tag = element.tagName
+      // Rendered Markdown never hosts chrome, but it does host code blocks: with glass
+      // code blocks, only its <div>s are inspected, as singles.
+      if (this.codeGlass() && element.hasAttribute(MARKDOWN_HINT_ATTRIBUTE)) {
+        this.singles.add(element)
+        for (const block of element.querySelectorAll('div')) this.singles.add(block)
+        return NodeFilter.FILTER_REJECT
+      }
       if (
         OPAQUE_TAGS.has(tag.toUpperCase()) ||
         element.hasAttribute(ATTR_OWNED) ||
@@ -610,7 +650,13 @@ export class GlassEngine {
     const background = style.backgroundColor
     const backdropFilter = style.backdropFilter
     if (!signatures.fills.has(background) && (backdropFilter === 'none' || backdropFilter !== signatures.menuFilter)) {
-      return { element, verdict: undefined, area: 0, untag: false }
+      return {
+        element,
+        verdict: undefined,
+        area: 0,
+        untag: false,
+        echo: this.echoes.has(element) || this.isEcho(element, background),
+      }
     }
     const rect = element.getBoundingClientRect()
     const viewport = Math.max(1, this.win.innerWidth * this.win.innerHeight)
@@ -624,6 +670,19 @@ export class GlassEngine {
       managed: element.hasAttribute(ATTR_MATERIAL),
     }
     return { element, verdict: classify(sample, signatures), area: sample.area, untag: false }
+  }
+
+  /**
+   * Whether an untagged element repaints the glass of the surface around it, as a
+   * component part that inherits its parent's fill through a variable of its own.
+   */
+  private isEcho(element: Element, background: string): boolean {
+    const color = parseColor(background)
+    if (!color || color.a === 0 || color.a >= 1) return false
+    const outer = element.parentElement?.closest(`[${ATTR_SURFACE}]:not([${ATTR_FLAT}])`)
+    const entry = outer ? this.tagged.get(outer) : undefined
+    if (!entry || entry.kind === 'backdrop' || entry.kind === 'menu' || entry.fill === undefined) return false
+    return background === this.expectedFor(entry.kind, entry.fill, false)
   }
 
   private expectedFor(kind: SurfaceKind, fill: FillKey, flat: boolean): string {
@@ -643,10 +702,17 @@ export class GlassEngine {
       this.untag(element)
       return true
     }
+    if (decision.echo && !this.echoes.has(element)) {
+      element.setAttribute(ATTR_ECHO, '')
+      this.echoes.add(element)
+      return false
+    }
     if (!verdict || this.tagged.has(element) || !element.isConnected) return false
     let flat = false
     if (verdict.fill !== undefined && STACKING_KINDS.has(verdict.kind)) {
-      const outer = element.parentElement?.closest(`[${ATTR_FILL}="${verdict.fill}"]:not([${ATTR_FLAT}])`)
+      // A code block's banner sits inside the block: one family, one layer of glass.
+      const family = verdict.kind === 'code' ? `[${ATTR_SURFACE}="code"]` : `[${ATTR_FILL}="${verdict.fill}"]`
+      const outer = element.parentElement?.closest(`${family}:not([${ATTR_FLAT}])`)
       flat = outer !== null && outer !== undefined && this.tagged.get(outer)?.kind !== 'backdrop'
     }
     element.setAttribute(ATTR_SURFACE, verdict.kind)
@@ -655,15 +721,26 @@ export class GlassEngine {
     if (verdict.paint && !flat) element.setAttribute(ATTR_PAINT, '')
     if (verdict.float && !flat) element.setAttribute(ATTR_FLOAT, '')
     this.tagged.set(element, { kind: verdict.kind, fill: verdict.fill, flat, area: decision.area })
+    // A nested surface may paint its parent's fill through a variable of its own
+    // component, which the flat rule cannot clear; look again once styles apply.
+    if (flat) this.requeue.push(element)
     return true
   }
 
   private untag(element: Element): void {
     for (const name of [ATTR_SURFACE, ATTR_FILL, ATTR_FLAT, ATTR_PAINT, ATTR_FLOAT]) element.removeAttribute(name)
     this.tagged.delete(element)
+    // Parts that echoed this surface paint their own color again.
+    for (const echo of this.echoes) {
+      if (element.contains(echo)) {
+        echo.removeAttribute(ATTR_ECHO)
+        this.echoes.delete(echo)
+      }
+    }
   }
 
   private prune(): void {
+    for (const echo of this.echoes) if (!echo.isConnected) this.echoes.delete(echo)
     let pruned = false
     for (const element of this.tagged.keys()) {
       if (!element.isConnected) {

@@ -29,6 +29,7 @@ describe('normalizeSettings', () => {
       wallpaper: 'meadow',
       wallpaperUrl: 'https://example.com/a.jpg',
       sidebar: 'docked',
+      codeBlocks: 'solid',
       refraction: false,
       highlights: false,
       exclude: '.terminal',
@@ -37,7 +38,14 @@ describe('normalizeSettings', () => {
   })
 
   it('falls back field by field', () => {
-    const result = normalizeSettings({ enabled: 'yes', tint: 'high', wallpaper: 'beach', sidebar: 'left', exclude: 7 })
+    const result = normalizeSettings({
+      enabled: 'yes',
+      tint: 'high',
+      wallpaper: 'beach',
+      sidebar: 'left',
+      codeBlocks: 'clear',
+      exclude: 7,
+    })
     assert.deepEqual(result, DEFAULT_SETTINGS)
   })
 

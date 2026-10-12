@@ -400,6 +400,17 @@ export function SettingsPage(props: SettingsPageProps) {
               onChange={value => set('sidebar', value)}
             />
           </Row>
+          <Row label={t('code.label')} hint={t('code.hint')}>
+            <Segmented
+              label={t('code.label')}
+              value={settings.codeBlocks}
+              options={[
+                { value: 'glass', label: t('code.glass') },
+                { value: 'solid', label: t('code.solid') },
+              ]}
+              onChange={value => set('codeBlocks', value)}
+            />
+          </Row>
           <Row
             label={t('refraction.label')}
             hint={props.refractionSupported ? t('refraction.hint') : t('refraction.unavailable')}

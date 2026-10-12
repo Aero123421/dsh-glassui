@@ -19,6 +19,8 @@ const FILLS: Record<string, FillKey> = {
   'rgb(30, 30, 31)': 'toast',
   'rgb(30, 31, 30)': 'tooltip',
   'rgb(254, 255, 255)': 'floating',
+  'rgb(249, 250, 250)': 'code',
+  'rgb(249, 251, 251)': 'codeBanner',
 }
 
 const signatures: Signatures = {
@@ -123,6 +125,17 @@ describe('classify', () => {
       ),
       undefined,
     )
+  })
+
+  it('turns code blocks and their banners into calm glass', () => {
+    assert.deepEqual(classify(sample({ background: 'rgb(249, 250, 250)' }), signatures), {
+      kind: 'code',
+      fill: 'code',
+      paint: false,
+      float: false,
+    })
+    assert.equal(classify(sample({ background: 'rgb(249, 251, 251)' }), signatures)?.kind, 'code')
+    assert.equal(classify(sample({ background: 'rgb(249, 250, 250)', area: 0.9 }), signatures), undefined)
   })
 
   it('leaves a small base-filled element alone', () => {

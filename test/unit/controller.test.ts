@@ -10,7 +10,7 @@ const diagnostics: Diagnostics = {
   environment: { refraction: false, finePointer: true, reducedTransparency: false, reducedMotion: false },
   missingTokens: [],
   ambiguousTokens: [],
-  surfaces: { sidebar: 0, composer: 0, panel: 0, menu: 0, smoke: 0, backdrop: 0 },
+  surfaces: { sidebar: 0, composer: 0, panel: 0, menu: 0, smoke: 0, code: 0, backdrop: 0 },
   lenses: 0,
   invalidExclude: false,
   scans: { batches: 0, inspected: 0, longestMs: 0, totalMs: 0 },

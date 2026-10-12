@@ -113,6 +113,10 @@ export function classify(sample: ElementSample, signatures: Signatures): Classif
     case 'toast':
     case 'tooltip':
       return pane ? undefined : surface('smoke', fill, sample)
+    case 'code':
+    case 'codeBanner':
+      // Calm glass for content: no sheen or pointer light over text being read.
+      return pane ? undefined : { kind: 'code', fill, paint: false, float: false }
     case undefined:
       return undefined
     default:

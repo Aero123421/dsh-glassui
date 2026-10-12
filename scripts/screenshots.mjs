@@ -65,7 +65,8 @@ try {
     await page.getByText('Settings', { exact: true }).first().click()
     await page.getByText('Glass UI', { exact: true }).first().click()
     await page.getByRole('switch', { name: 'Glass material' }).waitFor()
-    await page.waitForTimeout(800)
+    // The section refreshes its diagnostics every second.
+    await page.waitForTimeout(1500)
     await page.screenshot({ path: join(images, `settings-${scheme}.png`) })
     await context.close()
     console.log(`docs/images/*-${scheme}.png`)

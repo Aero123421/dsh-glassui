@@ -86,7 +86,11 @@ html, body { margin: 0; height: 100%; font: 14px/1.4 system-ui, sans-serif; }
   background: var(--dsw-menu-surface-fill); backdrop-filter: var(--dsw-menu-backdrop-filter); }
 .toast { position: fixed; left: 900px; top: 240px; width: 220px; height: 44px; border-radius: 12px;
   background: var(--dsw-alias-toast-bg); color: white; }
-.code { margin: 20px; height: 60px; background: var(--dsw-alias-markdown-code-block); }
+/* Like DSH's code block: the header repaints the block's fill through a local variable. */
+.code { --code-local-bg: var(--dsw-alias-markdown-code-block); margin: 20px; height: 110px; border-radius: 16px; background: var(--code-local-bg); }
+.code-header { height: 28px; border-radius: 16px 16px 0 0; background: var(--code-local-bg); }
+.code-banner { height: 20px; background: var(--dsw-alias-markdown-code-block-banner); }
+.inline-code { display: inline-block; margin: 0 20px; padding: 2px 6px; background: var(--dsw-alias-markdown-inline-code); }
 .flat-card { margin: 20px; height: 60px; background: var(--dsw-alias-bg-layer-2); }
 .chat p { margin: 4px 20px; }
 `
@@ -97,7 +101,8 @@ export const BODY_HTML = `
   <aside class="sidebar" id="sidebar"><div class="sidebar-inner" id="sidebar-inner">Sessions</div></aside>
   <main class="main" id="main">
     <div class="chat" id="chat"><p>Hello</p></div>
-    <pre class="code" id="code">const x = 1</pre>
+    <div class="code" id="code"><div class="code-header" id="code-header">ts</div><div class="code-banner" id="code-banner">banner</div><pre>const x = 1</pre></div>
+    <p>Call <span class="inline-code" id="inline-code">tokens.ts</span> first.</p>
     <div class="flat-card" id="flat-card">A card without elevation</div>
     <div data-glassui-ignore id="ignored"><div class="dialog" id="ignored-dialog" style="left: 40px; top: 600px; width: 100px; height: 60px"></div></div>
     <div class="composer" id="composer"><div style="padding: 16px">Message…</div></div>

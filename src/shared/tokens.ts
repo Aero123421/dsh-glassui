@@ -20,6 +20,8 @@ export const FILL_TOKENS = {
   elevated: '--dsw-alias-button-elevated-fill',
   overlay: '--dsw-alias-bg-overlay',
   base: '--dsw-alias-bg-base',
+  code: '--dsw-alias-markdown-code-block',
+  codeBanner: '--dsw-alias-markdown-code-block-banner',
 } as const
 
 export type FillKey = keyof typeof FILL_TOKENS
@@ -27,13 +29,14 @@ export type FillKey = keyof typeof FILL_TOKENS
 /** Watched fills in nudge priority order. */
 export const FILL_KEYS = Object.keys(FILL_TOKENS) as readonly FillKey[]
 
+/** Fills of code blocks: glass only while the code block setting asks for it. */
+export const CODE_FILLS: ReadonlySet<FillKey> = new Set(['code', 'codeBanner'])
+
 /**
  * Other background tokens. Watched fills are nudged away from their values so an
  * element painted with one of these is never mistaken for a watched surface.
  */
 export const RESERVED_TOKENS = [
-  '--dsw-alias-markdown-code-block',
-  '--dsw-alias-markdown-code-block-banner',
   '--dsw-alias-markdown-inline-code',
   '--dsw-alias-markdown-citation',
   '--dsw-alias-markdown-tag',
@@ -89,7 +92,8 @@ export const PLATFORM_ATTRIBUTE = 'data-platform'
 
 /**
  * Optional performance hint: DSH marks rendered Markdown with this attribute. The
- * engine skips those subtrees because message text never hosts chrome. If the
+ * engine skips those subtrees because message text never hosts chrome (unless code
+ * blocks, which live inside Markdown, are set to glass). If the
  * attribute disappears in a later release the engine scans a little more; results
  * do not change.
  */

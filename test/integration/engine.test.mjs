@@ -65,7 +65,10 @@ describe('discovery', () => {
       assert.equal(found.dialog?.kind, 'panel')
       assert.equal(found.menu?.kind, 'menu')
       assert.equal(found.toast?.kind, 'smoke')
-      assert.equal(found.code, undefined, 'reserved tokens are never glass')
+      assert.equal(found.code?.kind, 'code', 'code blocks are glass by default')
+      assert.equal(found['code-header'], undefined, 'the header is an echo, not a surface')
+      assert.equal(found['code-banner']?.flat, true, 'a banner inside a block adds no second layer')
+      assert.equal(found['inline-code'], undefined, 'reserved tokens are never glass')
       assert.equal(found['flat-card'], undefined, 'a card without elevation is not a panel')
       assert.equal(found['ignored-dialog'], undefined, 'data-glassui-ignore is respected')
       const diagnostics = await page.evaluate(() => window.__fixture.debug().diagnostics())
@@ -92,6 +95,10 @@ describe('discovery', () => {
           inner: read('sidebar-inner').backgroundColor,
           sidebarClip: read('sidebar').clipPath,
           code: read('code').backgroundColor,
+          header: read('code-header').backgroundColor,
+          headerEcho: document.getElementById('code-header').hasAttribute('data-glassui-echo'),
+          banner: read('code-banner').backgroundColor,
+          inlineCode: read('inline-code').backgroundColor,
         }
       })
       assert.equal(styles.root, 'on')
@@ -103,7 +110,12 @@ describe('discovery', () => {
       assert.equal(color(styles.frame).a, 0, 'layout panes become transparent')
       assert.equal(color(styles.inner).a, 0, 'nested surfaces do not stack glass')
       assert.match(styles.sidebarClip, /^inset\(8px round 18px\)$/)
-      assert.equal(styles.code, 'rgb(245, 246, 247)', 'reserved tokens keep their exact value')
+      const code = color(styles.code)
+      assert.ok(code.a > 0.5 && code.a < 1, `code blocks are a denser glass: ${styles.code}`)
+      assert.equal(styles.headerEcho, true, 'a part repainting the block’s glass is recognized')
+      assert.equal(color(styles.header).a, 0, 'and turns clear, so the block is one layer of glass')
+      assert.equal(color(styles.banner).a, 0, 'the banner fill is clear inside a glass block')
+      assert.equal(styles.inlineCode, 'rgb(240, 241, 243)', 'reserved tokens keep their exact value')
     } finally {
       await close()
     }
@@ -221,6 +233,30 @@ describe('settings', () => {
     }
   })
 
+  it('keeps code blocks solid when asked to', async () => {
+    const { page, close } = await openFixture()
+    try {
+      await page.evaluate(() => window.__fixture.form.update({ codeBlocks: 'solid' }))
+      await settle(page, 10)
+      const found = await surfaces(page)
+      assert.equal(found.code, undefined)
+      assert.equal(found['code-banner'], undefined)
+      assert.equal(
+        await page.evaluate(() => document.querySelectorAll('[data-glassui-echo]').length),
+        0,
+        'echoes go with their surface',
+      )
+      assert.equal(found.composer?.kind, 'composer', 'everything else stays glass')
+      const code = await page.evaluate(() => getComputedStyle(document.getElementById('code')).backgroundColor)
+      assert.equal(code, 'rgb(245, 246, 247)', 'exactly DSH’s color, not nudged')
+      await page.evaluate(() => window.__fixture.form.update({ codeBlocks: 'glass' }))
+      await settle(page, 10)
+      assert.equal((await surfaces(page)).code?.kind, 'code', 'and back')
+    } finally {
+      await close()
+    }
+  })
+
   it('turns off without leaving a trace', async () => {
     const stock = await openFixture({ plugin: false })
     const baseline = await snapshot(stock.page)
@@ -271,7 +307,7 @@ describe('settings', () => {
 })
 
 describe('performance', () => {
-  it('skips message content and keeps up with a streaming transcript', async () => {
+  it('keeps up with a streaming transcript', async () => {
     const { page, close } = await openFixture()
     try {
       const result = await page.evaluate(async () => {
@@ -302,8 +338,9 @@ describe('performance', () => {
         }
       })
       assert.ok(result.nodes > 50_000, `${result.nodes} nodes`)
-      // Rows are inspected; the Markdown inside them never is.
-      assert.ok(result.inspected <= result.rows + 50, `inspected ${result.inspected} of ${result.nodes} nodes`)
+      // Rows and the <div>s of their Markdown (where code blocks live) are inspected;
+      // text, lists, code and tables never are.
+      assert.ok(result.inspected <= result.rows * 2 + 50, `inspected ${result.inspected} of ${result.nodes} nodes`)
       // Generous bound for slow CI runners; includes the style recalculation the browser needs anyway.
       assert.ok(result.totalMs / result.rows < 0.25, `${(result.totalMs / result.rows).toFixed(3)} ms per message`)
       assert.equal((await surfaces(page)).composer?.kind, 'composer')

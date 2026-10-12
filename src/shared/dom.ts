@@ -21,6 +21,12 @@ export const ATTR_SURFACE = 'data-glassui-surface'
 export const ATTR_FILL = 'data-glassui-fill'
 /** On a discovered element nested in a surface of the same fill; it turns transparent instead of stacking glass. */
 export const ATTR_FLAT = 'data-glassui-flat'
+/**
+ * On a descendant of a surface that repaints the surface's own glass color (a
+ * component that passes its fill on to a part, such as a code block's header).
+ * It turns clear, so the surface stays one layer of glass.
+ */
+export const ATTR_ECHO = 'data-glassui-echo'
 /** On a discovered element that had no background image, so a highlight layer may be painted. */
 export const ATTR_PAINT = 'data-glassui-paint'
 /** On a discovered sidebar wide enough to float as an inset pane. */
@@ -56,9 +62,10 @@ export const VAR_POINTER_Y = '--glassui-ly'
  * - `panel`: a floating panel, dialog, popover or floating button.
  * - `menu`: a menu or popover DSH already blurs; only refraction is added.
  * - `smoke`: dark glass for toasts and tooltips.
+ * - `code`: a code block, as a denser glass that keeps code legible.
  * - `backdrop`: a large layout pane that turns transparent so the wallpaper shows through.
  */
-export const SURFACE_KINDS = ['sidebar', 'composer', 'panel', 'menu', 'smoke', 'backdrop'] as const
+export const SURFACE_KINDS = ['sidebar', 'composer', 'panel', 'menu', 'smoke', 'code', 'backdrop'] as const
 export type SurfaceKind = (typeof SURFACE_KINDS)[number]
 
 /** Selector matching every attribute the plugin may leave on DSH or plugin elements. */
@@ -71,6 +78,7 @@ export const FOOTPRINT_SELECTOR = [
   ATTR_SURFACE,
   ATTR_FILL,
   ATTR_FLAT,
+  ATTR_ECHO,
   ATTR_PAINT,
   ATTR_FLOAT,
   ATTR_LENS,

@@ -18,6 +18,7 @@
  * - Rules for discovered surfaces match only the plugin's own attributes.
  */
 import {
+  ATTR_ECHO,
   ATTR_FILL,
   ATTR_FLAT,
   ATTR_FLOAT,
@@ -42,6 +43,7 @@ import {
   FILL_KEYS,
   FILL_TOKENS,
   MENU_TOKENS,
+  type FillKey,
 } from './tokens.ts'
 import { svgDataUrl } from './wallpapers.ts'
 
@@ -100,6 +102,8 @@ const ROOT_PARAMETERS: Declarations = {
   '--glassui-fill-a': 'calc(0.16 + var(--glassui-tt) * 0.62)',
   '--glassui-dense-a': 'calc(0.52 + var(--glassui-tt) * 0.42)',
   '--glassui-smoke-a': 'calc(0.5 + var(--glassui-tt) * 0.42)',
+  // Code blocks stay dense enough for syntax colors to keep their contrast.
+  '--glassui-code-a': 'calc(0.4 + var(--glassui-tt) * 0.4)',
   '--glassui-canvas-a': 'calc(0.4 + var(--glassui-tt) * 0.5)',
   '--glassui-inset': '8px',
   // Matches the rx of the pane rim drawn by paneRim().
@@ -219,20 +223,25 @@ function surfaceRules(): string[] {
       '--glassui-pct': 'calc(var(--glassui-dense-a) * 100%)',
     }),
     rule(`${S}[${ATTR_SURFACE}="smoke"]`, { '--glassui-pct': 'calc(var(--glassui-smoke-a) * 100%)' }),
+    rule(`${S}[${ATTR_SURFACE}="code"]`, { '--glassui-pct': 'calc(var(--glassui-code-a) * 100%)' }),
     rule(`${S}[${ATTR_SURFACE}="backdrop"], ${S}[${ATTR_FLAT}]`, { '--glassui-pct': '0%' }),
     rule(GLASS, {
       // Safari ignores custom properties inside the prefixed property.
       '-webkit-backdrop-filter': 'blur(18px) saturate(180%)',
       'backdrop-filter': 'var(--glassui-filter)',
     }),
+    // A part repainting its surface's glass would double it; the surface shows through instead.
+    rule(`${BODY} [${ATTR_ECHO}]`, { 'background-color': 'transparent' }),
+    // Code blocks have no elevation of their own; a rim gives the glass its edge.
+    rule(`${GLASS}[${ATTR_SURFACE}="code"]`, { 'box-shadow': 'var(--glassui-rim)' }),
   ]
-  for (const key of FILL_KEYS) {
-    rules.push(
-      rule(`${S}[${ATTR_FILL}="${key}"]`, {
-        [FILL_TOKENS[key]]: `color-mix(in srgb, var(--glassui-src-${key}) var(--glassui-pct, 100%), transparent)`,
-      }),
-    )
-  }
+  const mix = (key: FillKey): string =>
+    `color-mix(in srgb, var(--glassui-src-${key}) var(--glassui-pct, 100%), transparent)`
+  for (const key of FILL_KEYS) rules.push(rule(`${S}[${ATTR_FILL}="${key}"]`, { [FILL_TOKENS[key]]: mix(key) }))
+  // A code block's banner (the header with the language and buttons) lies on the
+  // block's own fill. Inside a glass block it turns clear, so the block is one
+  // even layer of glass instead of a denser strip at the top.
+  rules.push(rule(`${S}[${ATTR_SURFACE}="code"][${ATTR_FILL}="code"]`, { [FILL_TOKENS.codeBanner]: 'transparent' }))
   rules.push(
     // Layers, top to bottom: pointer light, the floating pane's rim, the sheen.
     // Each layer is `none` unless its feature is on; sizes keep the floating

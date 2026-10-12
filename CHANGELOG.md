@@ -17,6 +17,9 @@ All notable changes are documented here. The format follows
   transparency (tint) setting.
 - Lens refraction along glass edges in Chromium-based browsers.
 - Pointer highlights on glass.
+- Code blocks as a denser glass, with a setting to keep them solid. Parts that
+  repaint their surface's glass (such as a code block's header) are cleared so
+  every surface stays one layer.
 - Built-in wallpapers (Bay, Sunrise, Meadow, Graphite) with light and dark
   variants, and custom wallpaper URLs.
 - **Settings → Glass UI** section with live preview, persistence through DSH's

@@ -18,7 +18,7 @@
 - **Follows DSH, not its markup.** Surfaces are found by the design tokens DSH paints them with (`--dsw-*`), never by class names, so a DSH update that rearranges its components does not break the theme.
 - **Stays out of the way.** Other plugins' theme overrides always win, the plugin never uses `!important`, and turning it off removes every trace without a reload.
 - **Fast.** No per-frame work while idle; DOM changes are scanned in time-sliced batches and rendered Markdown is skipped entirely.
-- **Accessible.** Honors _reduce transparency_, _increase contrast_, _reduce motion_ and Windows high-contrast mode, and keeps code blocks and message text on solid backgrounds.
+- **Accessible.** Honors _reduce transparency_, _increase contrast_, _reduce motion_ and Windows high-contrast mode. Code blocks become a denser glass that keeps syntax colors legible — or stay solid, if you prefer.
 - **Real refraction where the browser can do it.** In Chromium-based browsers the edges of the composer, menus and toasts bend the background like a lens. Elsewhere you get the same glass without the lens.
 - **No network, no telemetry.** Wallpapers are drawn as small inline SVGs; nothing is fetched unless you choose a custom wallpaper URL.
 
@@ -48,6 +48,7 @@ All settings apply live and are stored in your DSH profile, so they are also ava
 | Wallpaper                  | Automatic | Bay, Sunrise, Meadow, Graphite, none, or a custom image. _Automatic_ uses Bay in a browser and no wallpaper in the macOS desktop app, whose window already shows your desktop. |
 | Custom wallpaper URL       | —         | An `https://` URL, a path on the DSH server, or a base64 image `data:` URL.                                                                                                    |
 | Sidebar                    | Floating  | _Floating_ insets the sidebar as a rounded pane; _Docked_ keeps DSH's layout.                                                                                                  |
+| Code blocks                | Glass     | _Glass_ is a denser tint that keeps code easy to read; _Solid_ keeps DSH's opaque code blocks.                                                                                 |
 | Refraction                 | on        | Lens refraction along glass edges (Chromium-based browsers).                                                                                                                   |
 | Pointer highlights         | on        | A soft light that follows the mouse across glass. Off on touch screens and with _reduce motion_.                                                                               |
 | Leave these elements alone | —         | CSS selectors of elements the plugin must not style, e.g. `.my-plugin-panel`.                                                                                                  |

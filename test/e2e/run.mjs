@@ -170,7 +170,9 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
         await page.getByText(`${REPLY_PREFIX} ${scheme}`).first().waitFor({ timeout: 60_000 })
         await page.waitForTimeout(800)
         const found = await kinds(page)
-        for (const kind of ['sidebar', 'composer', 'backdrop']) assert.ok(found.includes(kind), `${kind} in ${found}`)
+        for (const kind of ['sidebar', 'composer', 'code', 'backdrop']) {
+          assert.ok(found.includes(kind), `${kind} in ${found}`)
+        }
         const report = await diagnostics(page)
         assert.equal(report.running, true)
         assert.deepEqual(report.missingTokens, [])

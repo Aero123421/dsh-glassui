@@ -26,6 +26,10 @@ export type WallpaperChoice = (typeof WALLPAPER_CHOICES)[number]
 export const SIDEBAR_STYLES = ['floating', 'docked'] as const
 export type SidebarStyle = (typeof SIDEBAR_STYLES)[number]
 
+/** `glass` turns code blocks into a denser glass; `solid` keeps DSH's opaque code blocks. */
+export const CODE_BLOCK_STYLES = ['glass', 'solid'] as const
+export type CodeBlockStyle = (typeof CODE_BLOCK_STYLES)[number]
+
 /** Every setting of the plugin. */
 export interface GlassSettings {
   /** Master switch. */
@@ -38,6 +42,8 @@ export interface GlassSettings {
   wallpaperUrl: string
   /** Sidebar presentation. */
   sidebar: SidebarStyle
+  /** Code block presentation. */
+  codeBlocks: CodeBlockStyle
   /** Lens refraction along glass edges where the browser supports it (Chromium). */
   refraction: boolean
   /** A soft highlight that follows the pointer on devices with a fine pointer. */
@@ -53,6 +59,7 @@ export const DEFAULT_SETTINGS: Readonly<GlassSettings> = Object.freeze({
   wallpaper: 'auto',
   wallpaperUrl: '',
   sidebar: 'floating',
+  codeBlocks: 'glass',
   refraction: true,
   highlights: true,
   exclude: '',
@@ -118,6 +125,7 @@ export function normalizeSettings(input: unknown): GlassSettings {
     wallpaper: oneOf(WALLPAPER_CHOICES, source.wallpaper, d.wallpaper),
     wallpaperUrl: text(source.wallpaperUrl, MAX_WALLPAPER_URL_LENGTH, d.wallpaperUrl),
     sidebar: oneOf(SIDEBAR_STYLES, source.sidebar, d.sidebar),
+    codeBlocks: oneOf(CODE_BLOCK_STYLES, source.codeBlocks, d.codeBlocks),
     refraction: bool(source.refraction, d.refraction),
     highlights: bool(source.highlights, d.highlights),
     exclude: text(source.exclude, MAX_EXCLUDE_LENGTH, d.exclude),

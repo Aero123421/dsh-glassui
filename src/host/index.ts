@@ -7,6 +7,7 @@
  */
 import z from '@deepseek-ai/schemastery'
 import {
+  CODE_BLOCK_STYLES,
   DEFAULT_SETTINGS,
   ENTRY_ID,
   MAX_EXCLUDE_LENGTH,
@@ -56,6 +57,11 @@ export const Config = z.object({
     .default(d.sidebar)
     .description('Float the sidebar as an inset pane, or keep it docked.')
     .volatile(),
+  codeBlocks: z
+    .union(CODE_BLOCK_STYLES)
+    .default(d.codeBlocks)
+    .description('Show code blocks as a denser glass, or keep them solid.')
+    .volatile(),
   refraction: z
     .boolean()
     .default(d.refraction)
@@ -87,6 +93,7 @@ export function readSettings(config: Config): GlassSettings {
     wallpaper: config.wallpaper.get(),
     wallpaperUrl: config.wallpaperUrl.get(),
     sidebar: config.sidebar.get(),
+    codeBlocks: config.codeBlocks.get(),
     refraction: config.refraction.get(),
     highlights: config.highlights.get(),
     exclude: config.exclude.get(),
