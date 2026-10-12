@@ -5,6 +5,7 @@
 - Node.js 22.19 or newer (TypeScript sources run directly through Node's type stripping in the unit tests)
 - npm 10+
 - For integration and E2E tests: Chromium for Playwright (`npx playwright install chromium`)
+- For E2E tests: [pnpm](https://pnpm.io) on `PATH` — DSH's plugin manager installs plugins with it
 
 ```sh
 npm ci
