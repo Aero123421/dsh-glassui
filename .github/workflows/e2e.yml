@@ -1,0 +1,67 @@
+# E2E: the packed plugin in a real DSH from npm, driven in Chromium.
+#   - pull requests touching the plugin or the harness: the pinned DSH
+#   - nightly: the pinned DSH, `latest` and `alpha`; a failure on a dist-tag means
+#     a new DSH needs attention (peer range, tokens) but does not block anything
+#   - called by the release workflow before publishing
+name: E2E
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'test/e2e/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/e2e.yml'
+  schedule:
+    - cron: '37 4 * * *'
+  workflow_dispatch:
+    inputs:
+      dsh-version:
+        description: 'DSH version or npm dist-tag (empty = pinned in package.json)'
+        default: ''
+        type: string
+  workflow_call:
+    inputs:
+      dsh-version:
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: E2E (DSH ${{ matrix.dsh || 'pinned' }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    continue-on-error: ${{ matrix.dsh == 'alpha' || matrix.dsh == 'latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        dsh: ${{ github.event_name == 'schedule' && fromJSON('["", "latest", "alpha"]') || fromJSON('[""]') }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: Compatibility check
+        if: matrix.dsh != '' || inputs.dsh-version != ''
+        run: node scripts/compat.mjs --install "${DSH_VERSION}"
+        env:
+          DSH_VERSION: ${{ matrix.dsh || inputs.dsh-version }}
+      - name: Run
+        env:
+          DSH_VERSION: ${{ matrix.dsh || inputs.dsh-version || '' }}
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-${{ matrix.dsh || 'pinned' }}-${{ github.run_attempt }}
+          path: artifacts/e2e/
+          retention-days: 14

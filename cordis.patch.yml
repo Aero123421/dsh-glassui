@@ -1,0 +1,5 @@
+# Mounts the dsh-glassui plugin in the profile it is installed into.
+# The entry id is also the settings namespace the client half reads and writes.
+- insert:
+    - id: dsh-glassui
+      name: dsh-glassui

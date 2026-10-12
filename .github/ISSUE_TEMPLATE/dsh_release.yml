@@ -1,0 +1,15 @@
+name: New DSH release
+description: A new DSH version is out, or something broke after updating DSH.
+labels: [compatibility]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: DSH version
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: What you noticed
+      description: Output of `npm run compat -- --install <version>` is welcome.

@@ -1,0 +1,33 @@
+# Changelog
+
+All notable changes are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
+[Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+## [0.1.0] - 2026-10-13
+
+### Added
+
+- Glass material for DSH Web's sidebar, composer, dialogs and panels, menus,
+  toasts and tooltips, discovered from DSH's design tokens rather than its
+  markup.
+- Floating sidebar pane, specular rims, contained shadows and a
+  transparency (tint) setting.
+- Lens refraction along glass edges in Chromium-based browsers.
+- Pointer highlights on glass.
+- Built-in wallpapers (Bay, Sunrise, Meadow, Graphite) with light and dark
+  variants, and custom wallpaper URLs.
+- **Settings → Glass UI** section with live preview, persistence through DSH's
+  settings, diagnostics and English, Japanese and Simplified Chinese text.
+- `data-glassui-ignore` and `data-glassui-material` attributes for other
+  plugins, and an exclusion setting for users.
+- Support for reduced transparency, increased contrast, reduced motion and
+  forced colors.
+- Compatibility check (`npm run compat`) and an E2E suite against real DSH.
+
+Supports DSH `>=0.2.0-rc.2 <0.3.0`.
+
+[Unreleased]: https://github.com/Aero123421/dsh-glassui/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Aero123421/dsh-glassui/releases/tag/v0.1.0

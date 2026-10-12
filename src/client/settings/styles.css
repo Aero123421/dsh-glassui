@@ -1,0 +1,555 @@
+/* Settings page of dsh-glassui. Every color comes from DSH's theme tokens, so the
+   page follows DSH's light and dark palettes and any theme another plugin applies. */
+
+.glassui-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 720px;
+  padding: 4px 0 32px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.glassui-hero {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.glassui-hero__art {
+  position: relative;
+  flex: none;
+  width: 132px;
+  height: 88px;
+  border-radius: var(--dsw-radius-lg, 16px);
+  background-size: cover;
+  background-position: center;
+  box-shadow: 0 0 0 0.5px var(--dsw-alias-border-l2);
+  overflow: hidden;
+}
+
+.glassui-hero__pane {
+  position: absolute;
+  inset: 18px 20px;
+  border-radius: 12px;
+  background: linear-gradient(to bottom, rgb(255 255 255 / 0.35), rgb(255 255 255 / 0.1));
+  -webkit-backdrop-filter: blur(6px) saturate(170%);
+  backdrop-filter: blur(6px) saturate(170%);
+  box-shadow:
+    inset 1px 1.5px 0 -0.5px rgb(255 255 255 / 0.9),
+    inset -1px -1px 0 -0.5px rgb(255 255 255 / 0.4),
+    0 6px 16px -6px rgb(0 0 0 / 0.25);
+}
+
+.glassui-hero__text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.glassui-hero__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+}
+
+.glassui-hero__subtitle {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.glassui-status {
+  margin-top: 4px;
+  padding: 1px 10px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.glassui-status[data-on='true'] {
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, transparent);
+  color: var(--dsw-alias-label-primary);
+}
+
+.glassui-banner {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--dsw-radius-md, 12px);
+  background: var(--dsw-alias-state-warn-tertiary);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}
+
+.glassui-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.glassui-section__title {
+  margin: 0 4px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.glassui-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--dsw-radius-xl, 20px);
+  background: var(--dsw-alias-settings-card-fill, var(--dsw-alias-bg-layer-2));
+  box-shadow: inset 0 0 0 0.5px var(--dsw-alias-settings-card-stroke, var(--dsw-alias-border-l4));
+}
+
+.glassui-card > * + * {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.glassui-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 56px;
+  padding: 10px 16px;
+}
+
+.glassui-row__text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.glassui-row__label {
+  font-weight: 500;
+}
+
+.glassui-row__hint {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.glassui-row__control {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.glassui-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px 14px;
+}
+
+.glassui-note {
+  margin: 0;
+  padding: 0 16px 12px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.glassui-card > .glassui-note {
+  border-top: 0;
+}
+
+/* Switch: the geometry and tokens of DSH's own switch (ui-primitives Switch). */
+.glassui-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--dsw-alias-border-l3);
+  cursor: pointer;
+  transition: background-color var(--ds-transition-duration, 0.2s) var(--ds-ease-in-out, ease);
+  corner-shape: round;
+}
+
+.glassui-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--dsw-alias-switch-thumb);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+  transition: transform var(--ds-transition-duration, 0.2s) var(--ds-ease-in-out, ease);
+  corner-shape: round;
+}
+
+.glassui-switch[aria-checked='true'] {
+  background: var(--dsw-alias-brand-primary);
+}
+
+.glassui-switch[aria-checked='true']::after {
+  background: var(--dsw-alias-label-primary-foreground);
+  transform: translateX(16px);
+}
+
+.glassui-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.glassui-switch:focus-visible,
+.glassui-segmented__option:focus-visible,
+.glassui-wallpaper:focus-visible,
+.glassui-button:focus-visible,
+.glassui-range:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-link));
+  outline-offset: 2px;
+}
+
+/* Slider */
+.glassui-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px 14px;
+}
+
+.glassui-slider__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.glassui-slider__value {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.glassui-slider__ends {
+  display: flex;
+  justify-content: space-between;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.glassui-range {
+  width: 100%;
+  height: 24px;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.glassui-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--dsw-alias-brand-primary) var(--glassui-progress, 50%),
+    var(--dsw-alias-border-l3) var(--glassui-progress, 50%)
+  );
+}
+
+.glassui-range::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--dsw-alias-border-l3);
+}
+
+.glassui-range::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--dsw-alias-brand-primary);
+}
+
+.glassui-range::-webkit-slider-thumb {
+  width: 22px;
+  height: 22px;
+  margin-top: -9px;
+  border-radius: 50%;
+  background: var(--dsw-static-neutral-00, #fff);
+  box-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.12),
+    0 2px 6px rgb(0 0 0 / 0.2);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.glassui-range::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--dsw-static-neutral-00, #fff);
+  box-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.12),
+    0 2px 6px rgb(0 0 0 / 0.2);
+}
+
+/* Segmented control */
+.glassui-segmented {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--glassui-segments), minmax(0, 1fr));
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-module-platform);
+  corner-shape: round;
+}
+
+.glassui-segmented__thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / var(--glassui-segments));
+  border-radius: 999px;
+  background: var(--dsw-alias-button-elevated-fill);
+  box-shadow:
+    0 0 0 0.5px var(--dsw-alias-border-l2),
+    0 1px 3px rgb(0 0 0 / 0.1);
+  transform: translateX(calc(var(--glassui-index) * 100%));
+  transition: transform 0.35s cubic-bezier(0.34, 1.3, 0.64, 1);
+  corner-shape: round;
+}
+
+.glassui-segmented__option {
+  position: relative;
+  min-width: 88px;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  corner-shape: round;
+}
+
+.glassui-segmented__option[aria-checked='true'] {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+}
+
+/* Wallpaper picker */
+.glassui-wallpapers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.glassui-wallpaper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.glassui-wallpaper__swatch {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 8 / 5;
+  border-radius: var(--dsw-radius-md, 12px);
+  background-color: var(--dsw-alias-bg-module-platform);
+  background-size: cover;
+  background-position: center;
+  box-shadow: inset 0 0 0 0.5px var(--dsw-alias-border-l3);
+}
+
+.glassui-wallpaper[data-choice='none'] .glassui-wallpaper__swatch {
+  background-image: linear-gradient(
+    135deg,
+    transparent calc(50% - 0.5px),
+    var(--dsw-alias-border-l4) 50%,
+    transparent calc(50% + 0.5px)
+  );
+}
+
+.glassui-wallpaper[data-choice='custom'] .glassui-wallpaper__swatch {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--dsw-alias-bg-module-platform) 0 6px,
+    var(--dsw-alias-bg-layer-2) 6px 12px
+  );
+}
+
+.glassui-wallpaper__badge {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.85);
+  color: rgb(0 0 0 / 0.75);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.glassui-wallpaper[aria-checked='true'] {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+}
+
+.glassui-wallpaper[aria-checked='true'] .glassui-wallpaper__swatch {
+  box-shadow:
+    0 0 0 2px var(--dsw-alias-bg-layer-2),
+    0 0 0 4px var(--dsw-alias-brand-primary);
+}
+
+/* Text fields */
+.glassui-field {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.glassui-row:has(.glassui-field) .glassui-row__control {
+  flex: 1;
+}
+
+.glassui-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-sm, 8px);
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-family: var(--ds-font-family-code, monospace);
+  font-size: 12.5px;
+}
+
+.glassui-input:focus {
+  outline: none;
+  border-color: var(--dsw-alias-link);
+}
+
+.glassui-input[aria-invalid='true'] {
+  border-color: var(--dsw-alias-state-error-primary);
+}
+
+.glassui-field__error {
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* Diagnostics */
+.glassui-diagnostics {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.glassui-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 16px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.glassui-facts dt {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.glassui-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.glassui-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.glassui-button {
+  height: 30px;
+  padding: 0 14px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  corner-shape: round;
+}
+
+.glassui-button:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.glassui-report {
+  box-sizing: border-box;
+  width: 100%;
+  height: 160px;
+  padding: 8px 10px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-sm, 8px);
+  background: var(--dsw-alias-markdown-code-block);
+  color: var(--dsw-alias-label-secondary);
+  font-family: var(--ds-font-family-code, monospace);
+  font-size: 11.5px;
+  resize: vertical;
+}
+
+.glassui-footer {
+  margin: 0 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+@media (max-width: 560px) {
+  .glassui-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .glassui-row {
+    flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glassui-switch,
+  .glassui-switch::after,
+  .glassui-segmented__thumb {
+    transition: none;
+  }
+}

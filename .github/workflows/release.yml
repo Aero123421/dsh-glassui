@@ -1,0 +1,170 @@
+# Release: push a tag v<version> matching package.json and this workflow
+#   1. verifies the version, types, lint, tests and the integration suite,
+#   2. runs the E2E suite against the pinned DSH,
+#   3. packs the plugin tarball,
+#   4. publishes a GitHub Release with SHA256SUMS and a build provenance attestation.
+# Nothing is published to npm.
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Version and checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Tag matches package.json
+        id: version
+        run: node scripts/check-version.mjs --tag "$GITHUB_REF_NAME"
+      - run: npm ci --no-audit --no-fund
+      - run: npm run check
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:integration
+
+  e2e:
+    name: E2E against real DSH
+    needs: verify
+    permissions:
+      contents: read
+    uses: ./.github/workflows/e2e.yml
+
+  package:
+    name: Plugin tarball
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run pack
+      - name: Tarball is named after the release and install-safe
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          tarball="artifacts/dsh-glassui-${VERSION}.tgz"
+          test -f "$tarball" || { echo "::error::$tarball was not produced"; ls -la artifacts; exit 1; }
+          tar -xzOf "$tarball" package/package.json | node -e '
+            const pkg = JSON.parse(require("fs").readFileSync(0, "utf8"));
+            const bad = ["scripts", "dependencies", "devDependencies"].filter(key => pkg[key] && Object.keys(pkg[key]).length);
+            if (bad.length) { console.error(`::error::packed package.json has ${bad.join(", ")}`); process.exit(1) }'
+          mkdir -p release
+          cp "$tarball" release/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-plugin
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: GitHub Release
+    needs: [verify, e2e, package]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the release and upload assets
+      id-token: write # OIDC token for the provenance attestation
+      attestations: write # store the attestation
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-plugin
+          path: dist
+      - name: SHA256SUMS
+        working-directory: dist
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          sha256sum "dsh-glassui-${VERSION}.tgz" > SHA256SUMS
+          cat SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - name: Build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            dist/dsh-glassui-*.tgz
+            dist/SHA256SUMS
+      - name: Release notes
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          tag="v${VERSION}"
+          url="https://github.com/${REPO}/releases/download/${tag}/dsh-glassui-${VERSION}.tgz"
+          {
+            echo "Glass UI ${VERSION} — a Liquid Glass–style material for DSH (DeepSeek Harness) Web. Unofficial."
+            echo
+            echo "## Install"
+            echo
+            echo "In DSH Web open **Plugins → Add plugin** and paste \`${url}\`, or run:"
+            echo
+            echo '```sh'
+            echo "dsh plugin --profile web add ${url}"
+            echo '```'
+            echo
+            echo "Supports DSH \`$(node -p 'require("./package.json").peerDependencies["@deepseek-ai/dsh"]')\`."
+            echo
+            echo "## Changes"
+            echo
+            node -e '
+              const text = require("fs").readFileSync("CHANGELOG.md", "utf8");
+              const start = text.indexOf(`## [${process.env.VERSION}]`);
+              if (start < 0) { console.log("See CHANGELOG.md."); process.exit(0) }
+              const rest = text.slice(text.indexOf("\n", start) + 1);
+              const end = rest.search(/^## \[/m);
+              console.log((end < 0 ? rest : rest.slice(0, end)).replace(/^\[.*\]: .*$/gm, "").trim());'
+            echo
+            echo "## Verify"
+            echo
+            echo '```sh'
+            echo "sha256sum -c SHA256SUMS --ignore-missing"
+            echo "gh attestation verify dsh-glassui-${VERSION}.tgz --repo ${REPO}"
+            echo '```'
+          } > notes.md
+          cat notes.md
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+        run: |
+          flags=""
+          [ "$PRERELEASE" = "true" ] && flags="--prerelease"
+          if gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "v${VERSION}" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "v${VERSION}" --notes-file notes.md --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "v${VERSION}" dist/* --title "Glass UI ${VERSION}" --notes-file notes.md --verify-tag $flags --repo "$GITHUB_REPOSITORY"
+          fi

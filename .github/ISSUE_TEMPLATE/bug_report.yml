@@ -1,0 +1,39 @@
+name: Bug report
+description: Something looks wrong or does not work.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected and what you saw. Screenshots help a lot for visual problems.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+  - type: input
+    id: dsh
+    attributes:
+      label: DSH version
+      placeholder: 0.2.1-alpha.2
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser or app
+      placeholder: Chrome 141 / DSH desktop app on macOS / Safari 18
+    validations:
+      required: true
+  - type: input
+    id: plugins
+    attributes:
+      label: Other plugins installed
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Settings → Glass UI → Compatibility → Copy diagnostics, then paste here.
+      render: json

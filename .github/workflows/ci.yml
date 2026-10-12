@@ -1,0 +1,81 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Checks (Node ${{ matrix.node }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm test
+      - run: npm run build
+      - run: node scripts/pack.mjs
+      - name: Packed manifest is install-safe
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          tar -xzOf "artifacts/dsh-glassui-${version}.tgz" package/package.json | node -e '
+            const pkg = JSON.parse(require("fs").readFileSync(0, "utf8"));
+            const bad = ["scripts", "dependencies", "devDependencies"].filter(key => pkg[key] && Object.keys(pkg[key]).length);
+            if (bad.length) { console.error(`::error::packed package.json has ${bad.join(", ")}`); process.exit(1) }'
+      - uses: actions/upload-artifact@v7
+        if: matrix.node == '22'
+        with:
+          name: dsh-glassui-plugin
+          path: artifacts/*.tgz
+          if-no-files-found: error
+
+  browser:
+    name: Integration (Chromium)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:integration
+
+  compat:
+    name: Tokens and contracts (DSH ${{ matrix.dsh }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        dsh: ['0.2.0-rc.2', '0.2.1-alpha.2']
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - run: node scripts/compat.mjs --install "${{ matrix.dsh }}"
