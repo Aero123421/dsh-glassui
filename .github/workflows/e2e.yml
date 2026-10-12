@@ -58,7 +58,21 @@ jobs:
       - name: Run
         env:
           DSH_VERSION: ${{ matrix.dsh || inputs.dsh-version || '' }}
-        run: npm run test:e2e
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/e2e
+          npm run test:e2e 2>&1 | tee artifacts/e2e/output.txt
+      - name: Report failures as annotations
+        if: failure()
+        run: |
+          for file in artifacts/e2e/output.txt artifacts/e2e/*.log; do
+            [ -f "$file" ] || continue
+            echo "::group::$file"
+            tail -n 80 "$file"
+            echo "::endgroup::"
+            body="$(tail -n 30 "$file" | sed -e 's/%/%25/g' -e 's/\r//g' | awk 'BEGIN { ORS = "%0A" } { print }')"
+            echo "::error title=$(basename "$file")::${body}"
+          done
       - uses: actions/upload-artifact@v7
         if: always()
         with:
