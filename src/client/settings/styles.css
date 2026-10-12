@@ -412,6 +412,22 @@
   line-height: 18px;
 }
 
+.glassui-wallpaper__badge[data-kind='live'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.glassui-wallpaper__badge[data-kind='live']::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #34c759;
+}
+
 .glassui-wallpaper[aria-checked='true'] {
   color: var(--dsw-alias-label-primary);
   font-weight: 500;

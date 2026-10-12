@@ -11,8 +11,20 @@ export const ENTRY_ID = 'dsh-glassui'
 /** Global the Host boot rows assign before any client code runs. */
 export const BOOT_GLOBAL = '__DSH_GLASSUI__'
 
-/** Built-in wallpapers drawn by {@link import('./wallpapers.ts').wallpaperSvg}. */
-export const WALLPAPER_PRESETS = ['bay', 'sunrise', 'meadow', 'graphite'] as const
+/** Built-in wallpapers drawn by {@link import('./wallpapers.ts').wallpaperSvg}; tide and the ones after it move. */
+export const WALLPAPER_PRESETS = [
+  'bay',
+  'sunrise',
+  'meadow',
+  'graphite',
+  'lagoon',
+  'dusk',
+  'dune',
+  'tide',
+  'aurora',
+  'bloom',
+  'prism',
+] as const
 export type WallpaperPreset = (typeof WALLPAPER_PRESETS)[number]
 
 /**

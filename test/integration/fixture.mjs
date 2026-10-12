@@ -221,10 +221,16 @@ export async function closeBrowser() {
 
 /**
  * Open the fixture with the plugin's client half loaded and started.
- * @param {object} [options] - see {@link pageHtml}; plus `start` (default true) and `settings` for the form.
+ * @param {object} [options] - see {@link pageHtml}; plus `start` (default true) and `reducedMotion`.
  */
 export async function openFixture(options = {}) {
-  const context = await (await browser()).newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })
+  const context = await (
+    await browser()
+  ).newContext({
+    viewport: { width: 1440, height: 900 },
+    colorScheme: options.dark ? 'dark' : 'light',
+    reducedMotion: options.reducedMotion ? 'reduce' : 'no-preference',
+  })
   const page = await context.newPage()
   const errors = []
   page.on('pageerror', error => errors.push(error))

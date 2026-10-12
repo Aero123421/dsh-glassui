@@ -18,6 +18,29 @@ const logs = join(root, 'artifacts', 'screenshots')
 mkdirSync(images, { recursive: true })
 mkdirSync(logs, { recursive: true })
 
+// The wallpaper gallery needs no DSH: every preset, light above dark.
+{
+  const { wallpaperImage, isAnimated } = await import('../src/shared/wallpapers.ts')
+  const { WALLPAPER_PRESETS } = await import('../src/shared/settings.ts')
+  const tile = (preset, scheme) =>
+    `<figure><div style="background-image:${wallpaperImage(preset, scheme).replace(/"/g, '&quot;')}"></div>` +
+    `<figcaption>${preset[0].toUpperCase()}${preset.slice(1)}${isAnimated(preset) ? ' <b>Live</b>' : ''}</figcaption></figure>`
+  const html =
+    '<!doctype html><style>body{margin:0;padding:20px;background:#f2f3f5;font:13px/1.2 -apple-system,system-ui,sans-serif;color:#333}' +
+    'section{display:grid;grid-template-columns:repeat(11,1fr);gap:12px;margin-bottom:14px}figure{margin:0}' +
+    'figure div{aspect-ratio:16/10;border-radius:10px;background:center/cover;box-shadow:0 0 0 .5px rgb(0 0 0/.15)}' +
+    'figcaption{margin-top:6px;text-align:center}b{font-size:10px;color:#1a9e48}</style>' +
+    `<section>${WALLPAPER_PRESETS.map(preset => tile(preset, 'light')).join('')}</section>` +
+    `<section>${WALLPAPER_PRESETS.map(preset => tile(preset, 'dark')).join('')}</section>`
+  const gallery = await chromium.launch({ executablePath: process.env.GLASSUI_CHROMIUM || undefined })
+  const page = await gallery.newPage({ viewport: { width: 1600, height: 100 }, deviceScaleFactor: 1 })
+  await page.setContent(html)
+  await page.waitForTimeout(500)
+  await page.screenshot({ path: join(images, 'wallpapers.png'), fullPage: true })
+  await gallery.close()
+  console.log('docs/images/wallpapers.png')
+}
+
 await run('build', process.execPath, ['scripts/build.mjs'], { cwd: root })
 await run('pack', process.execPath, ['scripts/pack.mjs'], { cwd: root })
 const dsh = await installDsh({

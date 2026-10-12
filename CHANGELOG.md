@@ -20,8 +20,10 @@ All notable changes are documented here. The format follows
 - Code blocks as a denser glass, with a setting to keep them solid. Parts that
   repaint their surface's glass (such as a code block's header) are cleared so
   every surface stays one layer.
-- Built-in wallpapers (Bay, Sunrise, Meadow, Graphite) with light and dark
-  variants, and custom wallpaper URLs.
+- Eleven built-in wallpapers with light and dark variants: Bay, Sunrise,
+  Meadow, Graphite, Lagoon, Dusk and Dune, and the animated Tide, Aurora,
+  Bloom and Prism, which move on the compositor at 12 steps per second and
+  hold still with reduced motion. Custom wallpaper URLs.
 - **Settings → Glass UI** section with live preview, persistence through DSH's
   settings, diagnostics and English, Japanese and Simplified Chinese text.
 - `data-glassui-ignore` and `data-glassui-material` attributes for other

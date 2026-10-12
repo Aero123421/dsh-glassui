@@ -389,7 +389,7 @@ export class GlassEngine {
     const settings = this.settings
     if (!this.running || !settings) return
     const darwin = this.doc.documentElement.getAttribute(PLATFORM_ATTRIBUTE) === 'darwin'
-    this.wallpaper.apply(settings, this.scheme(), darwin)
+    this.wallpaper.apply(settings, this.scheme(), darwin, !this.env.reducedMotion())
     this.highlights.setEnabled(
       settings.highlights && this.env.finePointer() && !this.env.reducedMotion() && !this.env.reducedTransparency(),
     )

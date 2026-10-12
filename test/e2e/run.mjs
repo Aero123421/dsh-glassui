@@ -227,6 +227,35 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
     }
   })
 
+  it('plays an animated wallpaper and keeps it after a reload', async () => {
+    const { page, errors, close } = await open()
+    const layer = () =>
+      page.evaluate(() => {
+        const element = document.querySelector('html > [data-glassui-owned="wallpaper"]')
+        return element ? element.querySelectorAll('div').length : 0
+      })
+    try {
+      await openSettings(page)
+      await page.getByRole('radio', { name: 'Aurora, Live' }).click()
+      await page.waitForFunction(() => document.documentElement.getAttribute('data-glassui-wallpaper') === 'aurora')
+      assert.ok((await layer()) >= 3, 'moving layers in place')
+      await page.keyboard.press('Escape')
+      await page.screenshot({ path: join(out, 'aurora-light.png') })
+      for (let attempt = 0; attempt < 40 && !(await pageHtml()).includes('"wallpaper":"aurora"'); attempt++) {
+        await page.waitForTimeout(250)
+      }
+      await page.reload()
+      await page.waitForFunction(() => '__DSH_GLASSUI_DEBUG__' in window)
+      await page.waitForFunction(() => document.querySelector('[data-glassui-owned="wallpaper"]') !== null)
+      await openSettings(page)
+      await page.getByRole('radio', { name: 'Automatic' }).click()
+      await page.waitForFunction(() => document.querySelector('[data-glassui-owned="wallpaper"]') === null)
+      assert.deepEqual(errors, [])
+    } finally {
+      await close()
+    }
+  })
+
   it('lets another plugin’s theme overrides win', async () => {
     const { page, close } = await open()
     try {

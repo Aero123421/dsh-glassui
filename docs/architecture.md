@@ -114,7 +114,16 @@ The pointer position is written, in the surface's own coordinates, onto the surf
 
 ### Wallpaper
 
-The built-in wallpapers are layered ribbons drawn as deterministic SVG (about 5 KB each) and embedded as `data:` URLs — nothing is downloaded. The canvas behind DSH becomes partly transparent so the wallpaper shows through panes that turned transparent.
+The built-in wallpapers ([`wallpapers.ts`](../src/shared/wallpapers.ts)) are deterministic SVG in two styles — layered ribbons and soft color fields — embedded as `data:` URLs, so nothing is downloaded. The canvas behind DSH becomes partly transparent so the wallpaper shows through panes that turned transparent.
+
+A wallpaper is a stack of full-frame layers with the same 16:10 view box. A still preset is drawn as one image. An animated preset (Tide, Aurora, Bloom, Prism) keeps its base as the `<html>` background and adds its moving layers in one element of the plugin's own:
+
+- The element is a child of `<html>` placed before `<body>`, `position: fixed; z-index: -1`, so it paints above the page background and below everything DSH draws — including the translucent canvas — whatever stacking contexts DSH sets up inside `<body>`.
+- Each moving layer is a whole image, drawn with an overscan margin of 15% on every side, and moved by a Web Animations `transform` animation. Transform animations run on the compositor; nothing runs on the main thread while the wallpaper plays.
+- Every animation uses `steps()` with 12 steps per second and a whole number of seconds per leg, so all layers change on the same clock. Chromium draws a frame only when a value changes: the glass above an animated wallpaper is re-blurred 12 times a second instead of 60–120. `test/integration/wallpaper.test.mjs` measures this.
+- The first frame equals the still picture, which the Host's boot rows paint before the browser half loads and which `prefers-reduced-motion` keeps showing.
+
+The layer element is owned (`data-glassui-owned`), so shutdown removes it like the plugin's other elements.
 
 ## Refraction
 

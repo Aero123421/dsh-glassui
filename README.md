@@ -20,6 +20,7 @@
 - **Fast.** No per-frame work while idle; DOM changes are scanned in time-sliced batches and rendered Markdown is skipped entirely.
 - **Accessible.** Honors _reduce transparency_, _increase contrast_, _reduce motion_ and Windows high-contrast mode. Code blocks become a denser glass that keeps syntax colors legible — or stay solid, if you prefer.
 - **Real refraction where the browser can do it.** In Chromium-based browsers the edges of the composer, menus and toasts bend the background like a lens. Elsewhere you get the same glass without the lens.
+- **Eleven wallpapers, four of them alive.** Ribbons and soft color fields in light and dark variants; the _Live_ ones drift slowly, redrawing the page only 12 times a second and holding still with _reduce motion_.
 - **No network, no telemetry.** Wallpapers are drawn as small inline SVGs; nothing is fetched unless you choose a custom wallpaper URL.
 
 ## Install
@@ -41,19 +42,25 @@ To remove it, uninstall it from **Plugins** (or `dsh plugin --profile web remove
 
 All settings apply live and are stored in your DSH profile, so they are also available on the Plugins page and in the configuration file.
 
-| Setting                    | Default   |                                                                                                                                                                                |
-| -------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Glass material             | on        | Master switch. Off restores DSH's own look immediately.                                                                                                                        |
-| Transparency               | 35        | 0 is ultra clear, 100 fully tinted.                                                                                                                                            |
-| Wallpaper                  | Automatic | Bay, Sunrise, Meadow, Graphite, none, or a custom image. _Automatic_ uses Bay in a browser and no wallpaper in the macOS desktop app, whose window already shows your desktop. |
-| Custom wallpaper URL       | —         | An `https://` URL, a path on the DSH server, or a base64 image `data:` URL.                                                                                                    |
-| Sidebar                    | Floating  | _Floating_ insets the sidebar as a rounded pane; _Docked_ keeps DSH's layout.                                                                                                  |
-| Code blocks                | Glass     | _Glass_ is a denser tint that keeps code easy to read; _Solid_ keeps DSH's opaque code blocks.                                                                                 |
-| Refraction                 | on        | Lens refraction along glass edges (Chromium-based browsers).                                                                                                                   |
-| Pointer highlights         | on        | A soft light that follows the mouse across glass. Off on touch screens and with _reduce motion_.                                                                               |
-| Leave these elements alone | —         | CSS selectors of elements the plugin must not style, e.g. `.my-plugin-panel`.                                                                                                  |
+| Setting                    | Default   |                                                                                                                                                                                                                                              |
+| -------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Glass material             | on        | Master switch. Off restores DSH's own look immediately.                                                                                                                                                                                      |
+| Transparency               | 35        | 0 is ultra clear, 100 fully tinted.                                                                                                                                                                                                          |
+| Wallpaper                  | Automatic | Bay, Sunrise, Meadow, Graphite, Lagoon, Dusk, Dune, the moving Tide, Aurora, Bloom and Prism, none, or a custom image. _Automatic_ uses Bay in a browser and no wallpaper in the macOS desktop app, whose window already shows your desktop. |
+| Custom wallpaper URL       | —         | An `https://` URL, a path on the DSH server, or a base64 image `data:` URL.                                                                                                                                                                  |
+| Sidebar                    | Floating  | _Floating_ insets the sidebar as a rounded pane; _Docked_ keeps DSH's layout.                                                                                                                                                                |
+| Code blocks                | Glass     | _Glass_ is a denser tint that keeps code easy to read; _Solid_ keeps DSH's opaque code blocks.                                                                                                                                               |
+| Refraction                 | on        | Lens refraction along glass edges (Chromium-based browsers).                                                                                                                                                                                 |
+| Pointer highlights         | on        | A soft light that follows the mouse across glass. Off on touch screens and with _reduce motion_.                                                                                                                                             |
+| Leave these elements alone | —         | CSS selectors of elements the plugin must not style, e.g. `.my-plugin-panel`.                                                                                                                                                                |
 
 The settings page also shows a short diagnostic report (surfaces found, tokens missing, scan cost) with a copy button for bug reports.
+
+### Wallpapers
+
+![The built-in wallpapers, light above dark](docs/images/wallpapers.png)
+
+_Live_ wallpapers move a few large layers on the compositor; nothing runs on the main thread while they play. They step a dozen times a second, which is smooth at their slow pace and lets the browser redraw the glass above them at a fifth of the display's refresh rate. With _reduce motion_ they show their first frame.
 
 ## For plugin authors
 

@@ -11,8 +11,9 @@ import {
   isSafeWallpaperUrl,
   type GlassSettings,
   type WallpaperChoice,
+  type WallpaperPreset,
 } from '../../shared/settings.ts'
-import { wallpaperImage, type Scheme } from '../../shared/wallpapers.ts'
+import { isAnimated, wallpaperImage, type Scheme } from '../../shared/wallpapers.ts'
 import type { ControllerState, GlassController } from '../controller.ts'
 import type { CopyKey } from './locales.ts'
 
@@ -165,6 +166,13 @@ function TextField(props: {
   )
 }
 
+/** The built-in preset a wallpaper choice stands for, if any. */
+function preset(choice: WallpaperChoice): WallpaperPreset | undefined {
+  if (choice === 'auto') return 'bay'
+  if (choice === 'none' || choice === 'custom') return undefined
+  return choice
+}
+
 function WallpaperPicker(props: {
   value: WallpaperChoice
   scheme: Scheme
@@ -175,26 +183,34 @@ function WallpaperPicker(props: {
   return (
     <div className="glassui-wallpapers" role="radiogroup" aria-label={t('section.wallpaper')}>
       {WALLPAPER_CHOICES.map(choice => {
-        const preview =
-          choice === 'auto'
-            ? wallpaperImage('bay', props.scheme)
-            : choice === 'none' || choice === 'custom'
-              ? undefined
-              : wallpaperImage(choice, props.scheme)
+        const shown = preset(choice)
+        const preview = shown ? wallpaperImage(shown, props.scheme) : undefined
+        const live = choice !== 'auto' && shown !== undefined && isAnimated(shown)
+        const name = t(`wallpaper.${choice}`)
         return (
           <button
             key={choice}
             type="button"
             role="radio"
             aria-checked={props.value === choice}
+            aria-label={live ? `${name}, ${t('wallpaper.live')}` : name}
             className="glassui-wallpaper"
             data-choice={choice}
             onClick={() => props.onChange(choice)}
           >
-            <span className="glassui-wallpaper__swatch" style={preview ? { backgroundImage: preview } : undefined}>
+            <span
+              className="glassui-wallpaper__swatch"
+              aria-hidden="true"
+              style={preview ? { backgroundImage: preview } : undefined}
+            >
               {choice === 'auto' ? <span className="glassui-wallpaper__badge">A</span> : null}
+              {live ? (
+                <span className="glassui-wallpaper__badge" data-kind="live">
+                  {t('wallpaper.live')}
+                </span>
+              ) : null}
             </span>
-            <span className="glassui-wallpaper__name">{t(`wallpaper.${choice}`)}</span>
+            <span className="glassui-wallpaper__name">{name}</span>
           </button>
         )
       })}
@@ -303,7 +319,7 @@ export function SettingsPage(props: SettingsPageProps) {
         <div
           className="glassui-hero__art"
           aria-hidden="true"
-          style={{ backgroundImage: wallpaperImage('bay', scheme) }}
+          style={{ backgroundImage: wallpaperImage(preset(settings.wallpaper) ?? 'bay', scheme) }}
         >
           <span className="glassui-hero__pane" />
         </div>
@@ -368,6 +384,9 @@ export function SettingsPage(props: SettingsPageProps) {
             onChange={value => set('wallpaper', value)}
           />
           {settings.wallpaper === 'auto' ? <p className="glassui-note">{t('wallpaper.auto.hint')}</p> : null}
+          {settings.wallpaper !== 'auto' && isAnimated(preset(settings.wallpaper) ?? 'bay') ? (
+            <p className="glassui-note">{t('wallpaper.live.hint')}</p>
+          ) : null}
           {settings.wallpaper === 'custom' ? (
             <Row label={t('wallpaper.url.label')} htmlFor={`${id}-url`}>
               <TextField

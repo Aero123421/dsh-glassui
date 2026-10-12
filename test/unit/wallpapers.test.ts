@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { WALLPAPER_PRESETS } from '../../src/shared/settings.ts'
-import { svgDataUrl, wallpaperImage, wallpaperSvg } from '../../src/shared/wallpapers.ts'
+import { WALLPAPER_PRESETS, type WallpaperPreset } from '../../src/shared/settings.ts'
+import {
+  OVERSCAN,
+  isAnimated,
+  svgDataUrl,
+  wallpaperImage,
+  wallpaperLayers,
+  wallpaperSvg,
+} from '../../src/shared/wallpapers.ts'
 
 const SCHEMES = ['light', 'dark'] as const
 
@@ -31,6 +38,66 @@ describe('wallpaperSvg', () => {
   it('stays small enough to embed in every page', () => {
     for (const preset of WALLPAPER_PRESETS) {
       for (const scheme of SCHEMES) assert.ok(wallpaperImage(preset, scheme).length < 12_000, `${preset}/${scheme}`)
+    }
+  })
+})
+
+describe('wallpaperLayers', () => {
+  const ANIMATED: readonly WallpaperPreset[] = ['tide', 'aurora', 'bloom', 'prism']
+
+  it('marks exactly the moving presets as animated', () => {
+    assert.deepEqual(
+      WALLPAPER_PRESETS.filter(preset => isAnimated(preset)),
+      ANIMATED,
+    )
+  })
+
+  it('draws a still preset as one layer, the same as its picture', () => {
+    for (const preset of WALLPAPER_PRESETS.filter(preset => !isAnimated(preset))) {
+      for (const scheme of SCHEMES) {
+        const layers = wallpaperLayers(preset, scheme)
+        const [layer] = layers
+        assert.equal(layers.length, 1)
+        assert.ok(layer)
+        assert.equal(layer.svg, wallpaperSvg(preset, scheme))
+        assert.equal(layer.motion, undefined)
+      }
+    }
+  })
+
+  it('splits a moving preset into a still base and moving layers holding every shape once', () => {
+    const shapes = (markup: string): number => (markup.match(/<(?:use href="#p\d+" fill="url|circle )/g) ?? []).length
+    for (const preset of ANIMATED) {
+      for (const scheme of SCHEMES) {
+        const [base, ...moving] = wallpaperLayers(preset, scheme)
+        assert.ok(base && base.motion === undefined, preset)
+        assert.equal(shapes(base.svg), 0, `${preset}: the base holds no shapes`)
+        assert.ok(moving.length >= 2, preset)
+        const total = moving.reduce((sum, layer) => sum + shapes(layer.svg), 0)
+        assert.equal(total, shapes(wallpaperSvg(preset, scheme)), `${preset}/${scheme}`)
+        for (const layer of moving) assert.ok(layer.motion, preset)
+      }
+    }
+  })
+
+  it('draws moving layers with an overscan margin', () => {
+    const [, layer] = wallpaperLayers('aurora', 'light')
+    const margin = (n: number): string => String(Math.round(n * OVERSCAN * 10) / 10)
+    assert.ok(layer?.svg.includes(`viewBox="-${margin(1600)} -${margin(1000)} `), layer?.svg.slice(0, 160))
+  })
+
+  it('keeps every moving layer’s edges outside the frame and on one step clock', () => {
+    for (const preset of ANIMATED) {
+      for (const layer of wallpaperLayers(preset, 'light').slice(1)) {
+        const motion = layer.motion
+        assert.ok(motion)
+        assert.ok(Number.isInteger(motion.duration) && motion.duration >= 20, `${preset}: ${motion.duration}s`)
+        // Travel plus the inward pull of shrinking, in percent of the frame, stays within the margin.
+        const pull = Math.max(0, 1 - motion.scale) * (50 + OVERSCAN * 100)
+        for (const travel of [motion.x, motion.y]) {
+          assert.ok(Math.abs(travel) + pull <= OVERSCAN * 100, `${preset}: ${travel}% + ${pull.toFixed(1)}%`)
+        }
+      }
     }
   })
 })
