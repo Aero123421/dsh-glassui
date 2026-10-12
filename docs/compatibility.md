@@ -9,7 +9,7 @@ Glass UI is built to keep working when DSH changes. This page describes what it 
 | DSH                   | Status                                                                          |
 | --------------------- | ------------------------------------------------------------------------------- |
 | 0.2.1-alpha.2         | Tested on every pull request (pinned in `package.json` → `glassui.e2e.dsh`).    |
-| 0.2.0-rc.2 (`latest`) | Tested nightly.                                                                 |
+| 0.2.0-rc.2 (`latest`) | Tested on every pull request and release.                                       |
 | newest `alpha`        | Tested nightly; failures open the question of a new release, they do not block. |
 
 ## What the plugin depends on
@@ -42,7 +42,7 @@ Both run nightly in GitHub Actions against the pinned version, `latest` and `alp
 
 | Change in DSH                                             | Effect                                                                                                      | What to do                                                            |
 | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Components restructured, classes renamed                  | None.                                                                                                       | —                                                                     |
+| Components restructured, classes renamed                  | The token and API contracts still need to be checked.                                                       | —                                                                     |
 | New components painted with existing tokens               | They become glass automatically.                                                                            | —                                                                     |
 | A watched token renamed or removed                        | Surfaces painted with it keep DSH's look; the settings page lists the token as missing. Nothing breaks.     | Update `tokens.ts`, release.                                          |
 | A watched token's value changes                           | None; values are read at runtime.                                                                           | —                                                                     |

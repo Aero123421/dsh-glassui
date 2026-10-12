@@ -62,6 +62,6 @@ In the browser console, `__DSH_GLASSUI_DEBUG__.diagnostics()` shows what the eng
 
 ## Releasing
 
-1. Update `version` in `package.json` and `CHANGELOG.md`.
+1. Update `version` in `package.json`, its lockfile and `CHANGELOG.md`, then run `npm run build` and commit `dist/` so GitHub installs contain the compiled plugin.
 2. If DSH released a new version, run `DSH_VERSION=<version> npm run test:e2e` and adjust `peerDependencies` and `glassui.e2e.dsh`.
 3. Merge, then push a tag `v<version>`. The release workflow verifies, runs the E2E suite, packs the tarball and publishes a GitHub Release with `SHA256SUMS` and a build provenance attestation. Nothing is published to npm.

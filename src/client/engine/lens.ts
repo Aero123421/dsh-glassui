@@ -6,8 +6,8 @@
  * their size is changing.
  *
  * A chosen surface carries `data-glassui-lens` for as long as it is chosen; the
- * stylesheet gives it shadows that stay inside its box (see {@link inkShift} for
- * why). The refracting `backdrop-filter` itself is a rule in the dynamic sheet,
+ * stylesheet gives it shadows that do not extend past its top-left corner.
+ * The refracting `backdrop-filter` itself is a rule in the dynamic sheet,
  * present only while the filter matches the surface's current geometry.
  */
 import { ATTR_LENS, ATTR_OWNED, type SurfaceKind } from '../../shared/dom.ts'
@@ -25,11 +25,6 @@ export const MAX_LENS_AREA = 0.35
 const SETTLE_MS = 160
 /** Rendered maps kept for reuse, keyed by geometry. */
 const MAP_CACHE = 24
-/**
- * Surfaces whose decorations shift the filter further than this keep the plain
- * blur: Chromium's placement is only reliable for small shifts.
- */
-const MAX_SHIFT = 24
 /** Mid-gray: "no displacement" for both channels. */
 const NEUTRAL = 'rgb(128 128 128)'
 
@@ -215,7 +210,9 @@ export class Lenses {
     const height = Number(match?.[2] ?? 0)
     const radius = Number(match?.[3] ?? 0)
     const shift: InkShift = { x: Number(match?.[4] ?? 0), y: Number(match?.[5] ?? 0) }
-    if (!match || width < 8 || height < 8 || shift.x > MAX_SHIFT || shift.y > MAX_SHIFT) {
+    // Older Chromium offsets by ink overflow; newer versions use the border box.
+    // Zero overflow works in both. Custom outer shadows and focus rings keep blur.
+    if (!match || width < 8 || height < 8 || shift.x !== 0 || shift.y !== 0) {
       this.setLive(entry, false)
       return
     }

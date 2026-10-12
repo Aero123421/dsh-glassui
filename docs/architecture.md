@@ -77,10 +77,10 @@ Some components pass their fill on to a part through a variable of their own —
 
 ### 3. Keep it correct
 
-- A `MutationObserver` on `<body>` (child lists and `class`) queues changed subtrees.
+- A `MutationObserver` on `<body>` queues changed subtrees after child-list, class, inline-style and opt-out changes. Changes to the plugin’s own pointer properties are ignored.
 - Palette changes — the dark attribute, inline styles on `<body>`, any stylesheet added to `<head>` by DSH or another plugin — trigger a fresh read of the token values; if they changed, everything is re-classified.
 - `transitionend` / `animationend` re-check the element concerned.
-- Work runs in `requestAnimationFrame` with a budget of 8 ms of its own time per frame: reads first, then writes, so marks land before the frame is painted and the layout is never thrashed.
+- Work runs in `requestAnimationFrame` with a target budget of 8 ms per frame, checked between batches of reads. Palette refreshes, browser style recalculation and writes can exceed that target.
 
 Tagged elements are verified cheaply: each kind has an expected computed background (read once from a probe), so a tagged element that still shows it keeps its marks without further work.
 
@@ -137,10 +137,7 @@ feImage (map)  ───┴→ feMerge ─────────────�
 
 The displacement map ([`lens-map.ts`](../src/client/engine/lens-map.ts)) is a rounded-rectangle signed-distance field: inside a bezel along the edge, each pixel samples the backdrop from further inside the shape, the way the rim of a lens does, fading out with depth. Maps are cached by geometry and rebuilt after a size change settles; while the size changes, the surface keeps the plain blur.
 
-**Chromium quirk.** Chromium places the filter's user space relative to the element's _ink overflow_ — its border box grown by outer box shadows and outlines — instead of its border box (verified on Chromium 141). The backdrop itself stays in place, so only the filter region and the map move. Two measures keep the lens aligned:
-
-1. Refracting surfaces get a _contained_ elevation whose shadows never reach past the top, left or right edge (only a hairline), so the shift is at most a pixel.
-2. The engine computes the remaining shift from the computed `box-shadow` and `outline` ([`ink.ts`](../src/client/engine/ink.ts)) and offsets the region and the map by it. Shifts above 24 px, where Chromium's placement stops being reliable, keep the plain blur.
+**Chromium differences.** Chromium 141 offsets an SVG backdrop filter by the element's ink overflow. Chromium 143 and 149 use its border box. Refracting surfaces therefore use inset rims and contained shadows with zero overflow at the top and left. Custom outer shadows or focus rings keep the normal blur until removed. No browser-version table or positional correction is needed.
 
 `test/integration/lens.test.mjs` pins this behavior with a probe filter, so a Chromium change shows up in CI.
 

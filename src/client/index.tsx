@@ -66,7 +66,7 @@ export function apply(ctx: ClientContext): void {
     ;(globalThis as Record<string, unknown>)[DEBUG_GLOBAL] = handle
     return () => {
       owner.dispose()
-      engine.stop()
+      engine.dispose()
       if ((globalThis as Record<string, unknown>)[DEBUG_GLOBAL] === handle) {
         Reflect.deleteProperty(globalThis, DEBUG_GLOBAL)
       }

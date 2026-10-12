@@ -205,6 +205,7 @@ export class GlassEngine {
   private rootWatch: MutationObserver | undefined
   private headWatch: MutationObserver | undefined
   private stopEnvironment: (() => void) | undefined
+  private disposed = false
 
   /**
    * @param win - window of the page.
@@ -221,6 +222,11 @@ export class GlassEngine {
     this.lenses = new Lenses(this.doc, this.sheet)
     this.highlights = new Highlights(this.doc)
     this.wallpaper = new Wallpaper(this.doc)
+    // Preferences must remain observable while high contrast suspends rendering.
+    this.stopEnvironment = this.env.onChange(() => {
+      if (this.settings) this.apply(this.settings)
+      this.paletteChanged()
+    })
   }
 
   /** Whether the material is currently applied. */
@@ -233,6 +239,7 @@ export class GlassEngine {
    * @param settings - complete, validated settings.
    */
   apply(settings: GlassSettings): void {
+    if (this.disposed) return
     const previous = this.settings
     this.settings = settings
     if (!settings.enabled || this.env.forcedColors()) {
@@ -277,7 +284,8 @@ export class GlassEngine {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ['class'],
+      attributeFilter: ['class', 'style', ATTR_IGNORE, ATTR_MATERIAL, 'contenteditable'],
+      attributeOldValue: true,
     })
     this.bodyWatch = new this.win.MutationObserver(() => this.paletteChanged())
     this.bodyWatch.observe(this.doc.body, { attributes: true, attributeFilter: [DARK_ATTRIBUTE, 'style', 'class'] })
@@ -290,10 +298,6 @@ export class GlassEngine {
     })
     this.headWatch.observe(this.doc.head, { childList: true, subtree: true, characterData: true })
     this.doc.addEventListener('load', this.loaded, true)
-    this.stopEnvironment = this.env.onChange(() => {
-      if (this.settings) this.apply(this.settings)
-      this.paletteChanged()
-    })
     this.doc.addEventListener('transitionend', this.settled, true)
     this.doc.addEventListener('animationend', this.settled, true)
 
@@ -313,13 +317,12 @@ export class GlassEngine {
     this.headWatch?.disconnect()
     this.subtree = this.bodyWatch = this.rootWatch = this.headWatch = undefined
     this.doc.removeEventListener('load', this.loaded, true)
-    this.stopEnvironment?.()
-    this.stopEnvironment = undefined
     this.doc.removeEventListener('transitionend', this.settled, true)
     this.doc.removeEventListener('animationend', this.settled, true)
     this.roots.clear()
     this.singles.clear()
     this.walkers = []
+    this.requeue.length = 0
 
     this.lenses.dispose()
     this.highlights.dispose()
@@ -328,7 +331,8 @@ export class GlassEngine {
     this.probes.dispose()
     this.ownSheet?.remove()
     this.ownSheet = undefined
-    this.tagged.clear()
+    for (const element of [...this.tagged.keys()]) this.untag(element)
+    for (const element of this.echoes) element.removeAttribute(ATTR_ECHO)
     this.echoes.clear()
     this.signatures = undefined
     this.rawKey = ''
@@ -350,6 +354,16 @@ export class GlassEngine {
       }
     }
     if (wasRunning) this.changed()
+  }
+
+  /** Release the engine permanently, including observers retained while paused. */
+  dispose(): void {
+    this.disposed = true
+    this.stopEnvironment?.()
+    this.stopEnvironment = undefined
+    this.stop()
+    if (this.notifyFrame !== 0) this.win.cancelAnimationFrame(this.notifyFrame)
+    this.notifyFrame = 0
   }
 
   /** @returns a snapshot of the engine's state. */
@@ -378,7 +392,7 @@ export class GlassEngine {
 
   private blurPx(): number {
     const tint = (this.settings?.tint ?? 35) / 100
-    return 6 + Math.max(tint, this.env.reducedTransparency() ? 1 : 0) * 22
+    return 6 + Math.max(tint, this.env.reducedTransparency() ? 1 : 0, this.env.increasedContrast() ? 0.85 : 0) * 22
   }
 
   private scheme(): 'light' | 'dark' {
@@ -388,6 +402,7 @@ export class GlassEngine {
   private applyPresentation(): void {
     const settings = this.settings
     if (!this.running || !settings) return
+    this.lenses.setBlur(this.blurPx())
     const darwin = this.doc.documentElement.getAttribute(PLATFORM_ATTRIBUTE) === 'darwin'
     this.wallpaper.apply(settings, this.scheme(), darwin, !this.env.reducedMotion())
     this.highlights.setEnabled(
@@ -437,7 +452,15 @@ export class GlassEngine {
     if (!rescan) return
     if (next !== '') {
       for (const element of [...this.tagged.keys()]) if (element.closest(next)) this.untag(element)
+      for (const element of this.echoes) {
+        if (element.closest(next)) {
+          element.removeAttribute(ATTR_ECHO)
+          this.echoes.delete(element)
+        }
+      }
     }
+    this.syncLenses()
+    this.changed()
     this.roots.add(this.doc.body)
     this.schedule()
   }
@@ -525,17 +548,47 @@ export class GlassEngine {
   private mutated(records: MutationRecord[]): void {
     let removed = false
     for (const record of records) {
+      if (this.ownRecord(record)) continue
       if (record.type === 'attributes') {
-        if (record.target instanceof this.win.Element) this.singles.add(record.target)
+        if (!(record.target instanceof this.win.Element)) continue
+        if (record.attributeName === 'style' && this.onlyOwnStyleChanged(record)) continue
+        // An ancestor can change descendants' fills, exclusions or stacking.
+        this.clearSubtree(record.target)
+        this.roots.add(record.target)
         continue
       }
       for (const node of record.addedNodes) {
-        if (node instanceof this.win.Element && !node.hasAttribute(ATTR_OWNED)) this.roots.add(node)
+        if (node instanceof this.win.Element && !node.hasAttribute(ATTR_OWNED)) {
+          this.clearSubtree(node)
+          this.roots.add(node)
+        }
       }
       if (record.removedNodes.length > 0) removed = true
     }
     if (removed) this.prune()
     this.schedule()
+  }
+
+  private onlyOwnStyleChanged(record: MutationRecord): boolean {
+    const plain = (text: string): string => {
+      const style = this.doc.createElement('div').style
+      style.cssText = text
+      for (const name of [...style]) if (name.startsWith('--glassui-')) style.removeProperty(name)
+      return style.cssText
+    }
+    return plain(record.oldValue ?? '') === plain((record.target as Element).getAttribute('style') ?? '')
+  }
+
+  private clearSubtree(root: Element): void {
+    for (const element of [...this.tagged.keys()]) if (root.contains(element)) this.untag(element)
+    for (const element of this.echoes) {
+      if (root.contains(element)) {
+        element.removeAttribute(ATTR_ECHO)
+        this.echoes.delete(element)
+      }
+    }
+    this.syncLenses()
+    this.changed()
   }
 
   private schedule(): void {
@@ -554,6 +607,7 @@ export class GlassEngine {
       else for (const element of this.tagged.keys()) this.singles.add(element)
     }
     for (const root of this.roots) {
+      if (!this.admissible(root)) continue
       // A walk already under way may have passed the new subtree, so only a pending walk can absorb it.
       if (root.isConnected && !this.walkers.some(entry => !entry.started && entry.root.contains(root))) {
         this.walkers = this.walkers.filter(entry => entry.started || !root.contains(entry.root))
@@ -565,14 +619,19 @@ export class GlassEngine {
     const deadline = started + FRAME_BUDGET_MS
     const decisions: Decision[] = []
     for (const element of this.singles) {
+      this.singles.delete(element)
       if (element.isConnected && CANDIDATE_TAGS.has(element.tagName) && this.admissible(element)) {
         decisions.push(this.inspect(element))
       }
+      if ((decisions.length & 63) === 0 && performance.now() > deadline) break
     }
-    this.singles.clear()
-    outer: while (this.walkers.length > 0) {
+    outer: while (this.walkers.length > 0 && performance.now() <= deadline) {
       const entry = this.walkers[0]
       if (!entry) break
+      if (!entry.root.isConnected || !this.admissible(entry.root)) {
+        this.walkers.shift()
+        continue
+      }
       if (!entry.started) {
         entry.started = true
         if (CANDIDATE_TAGS.has(entry.root.tagName) && this.admissible(entry.root))
@@ -740,11 +799,16 @@ export class GlassEngine {
   }
 
   private prune(): void {
-    for (const echo of this.echoes) if (!echo.isConnected) this.echoes.delete(echo)
+    for (const echo of this.echoes) {
+      if (!echo.isConnected) {
+        echo.removeAttribute(ATTR_ECHO)
+        this.echoes.delete(echo)
+      }
+    }
     let pruned = false
     for (const element of this.tagged.keys()) {
       if (!element.isConnected) {
-        this.tagged.delete(element)
+        this.untag(element)
         pruned = true
       }
     }
@@ -765,7 +829,7 @@ export class GlassEngine {
   private notifyFrame = 0
 
   private changed(): void {
-    if (!this.onChange || this.notifyFrame !== 0) return
+    if (this.disposed || !this.onChange || this.notifyFrame !== 0) return
     this.notifyFrame = this.win.requestAnimationFrame(() => {
       this.notifyFrame = 0
       this.onChange?.()

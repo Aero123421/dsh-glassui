@@ -32,6 +32,8 @@ jobs:
       - run: npm run format:check
       - run: npm test
       - run: npm run build
+      - name: GitHub install bundle matches source
+        run: git diff --exit-code -- dist
       - run: node scripts/pack.mjs
       - name: Packed manifest is install-safe
         run: |

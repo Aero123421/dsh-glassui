@@ -239,4 +239,98 @@ describe('GlassController', () => {
     new GlassController(engine)
     assert.deepEqual(engine.last, DEFAULT_SETTINGS)
   })
+
+  it('waits for a loading form instead of discarding an early edit', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    const controller = new GlassController(new FakeEngine())
+    const form = new FakeForm()
+    form.respond = (field, value) => {
+      if (form.snapshot.status !== 'ready') return Promise.resolve(false)
+      form.store(field, value)
+      return Promise.resolve(true)
+    }
+    controller.attach(form)
+    controller.update('tint', 80)
+    mock.timers.tick(300)
+    await settle()
+    assert.deepEqual(form.writes, [])
+    form.ready({})
+    mock.timers.tick(300)
+    await settle()
+    assert.equal(controller.getSnapshot().settings.tint, 80)
+    assert.equal(controller.getSnapshot().save, 'saved')
+  })
+
+  it('resumes persistence when a read-only form becomes writable', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    const controller = new GlassController(new FakeEngine())
+    const form = new FakeForm()
+    controller.attach(form)
+    form.ready({}, false)
+    controller.update('wallpaper', 'meadow')
+    form.ready({})
+    mock.timers.tick(300)
+    await settle()
+    assert.deepEqual(form.writes, [['wallpaper', 'meadow']])
+    assert.equal(controller.getSnapshot().save, 'saved')
+  })
+
+  it('serializes writes and keeps the latest repeated value after a refused older write', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    const controller = new GlassController(new FakeEngine())
+    const form = new FakeForm()
+    const replies: ((accepted: boolean) => void)[] = []
+    form.respond = (field, value) =>
+      new Promise(resolve => {
+        replies.push(accepted => {
+          if (accepted) form.store(field, value)
+          resolve(accepted)
+        })
+      })
+    controller.attach(form)
+    form.ready({})
+    controller.update('tint', 10)
+    mock.timers.tick(300)
+    await settle()
+    controller.update('tint', 90)
+    mock.timers.tick(300)
+    await settle()
+    controller.update('tint', 10)
+    mock.timers.tick(300)
+    await settle()
+    assert.equal(form.writes.length, 1, 'only one request is in flight')
+    replies[0]?.(false)
+    await settle()
+    assert.equal(controller.getSnapshot().settings.tint, 10, 'the newer edit survives')
+    assert.deepEqual(form.writes, [
+      ['tint', 10],
+      ['tint', 10],
+    ])
+    replies[1]?.(true)
+    await settle()
+    assert.equal(controller.getSnapshot().save, 'saved')
+  })
+
+  it('does not reapply glass when a write settles after disposal', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    const engine = new FakeEngine()
+    const controller = new GlassController(engine)
+    const form = new FakeForm()
+    let rejectWrite: (() => void) | undefined
+    form.respond = () =>
+      new Promise(resolve => {
+        rejectWrite = () => resolve(false)
+      })
+    controller.attach(form)
+    form.ready({})
+    controller.update('enabled', false)
+    mock.timers.tick(300)
+    await settle()
+    controller.dispose()
+    const count = engine.applied.length
+    rejectWrite?.()
+    await settle()
+    assert.equal(engine.applied.length, count)
+    assert.equal(form.listenerCount, 0)
+  })
 })

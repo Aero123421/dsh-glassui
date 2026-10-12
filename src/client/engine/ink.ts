@@ -1,12 +1,9 @@
 /**
  * Ink overflow of an element's own box decorations.
  *
- * Chromium (verified on 141) places the user space of an SVG filter used in
- * `backdrop-filter` relative to the element's ink overflow instead of its border
- * box: an outer box shadow or an outline that reaches `n` pixels past the left
- * edge moves the filter's origin `n` pixels to the right. The backdrop itself
- * stays in place, so only the filter region and the displacement map move. The
- * lens module offsets both by the shift computed here.
+ * Older Chromium offsets SVG backdrop filters by this overflow; newer versions
+ * use the border box. Refraction is enabled only when the reach is zero, so the
+ * same filter coordinates work in both (see lens.ts).
  */
 
 /** How far the filter origin moves right and down, in CSS pixels. */

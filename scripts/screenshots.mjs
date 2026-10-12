@@ -58,7 +58,7 @@ try {
     tarball: join(root, 'artifacts', `${manifest.name}-${manifest.version}.tgz`),
     logFile: join(logs, 'install-plugin.log'),
   })
-  const web = await startWeb({ dsh, world, port: 4390, mockUrl: mock.url, logFile: join(logs, 'dsh-web.log') })
+  const web = await startWeb({ dsh, world, port: 0, mockUrl: mock.url, logFile: join(logs, 'dsh-web.log') })
   browser = await chromium.launch({ executablePath: process.env.GLASSUI_CHROMIUM || undefined })
   for (const scheme of ['light', 'dark']) {
     const context = await browser.newContext({

@@ -2,7 +2,6 @@
 // These tests pin that behavior, so a browser change shows up in CI before users see it.
 import assert from 'node:assert/strict'
 import { after, describe, it } from 'node:test'
-import { inkShift } from '../../src/client/engine/ink.ts'
 import { closeBrowser, openFixture, settle, surfaces } from './fixture.mjs'
 
 after(closeBrowser)
@@ -63,8 +62,7 @@ describe('refraction', () => {
         'feDisplacementMap',
       ])
       assert.equal(state.filter.width, String(state.width))
-      // The contained elevation keeps the shift to the 1px hairline.
-      assert.ok(['0', '-1'].includes(state.filter.x), `filter x ${state.filter.x}`)
+      assert.equal(Number(state.filter.x), 0, 'no version-dependent origin correction')
       assert.ok(state.lenses >= 1)
     } finally {
       await close()
@@ -84,47 +82,80 @@ describe('refraction', () => {
     }
   })
 
-  // The engine's compensation (src/client/engine/ink.ts) assumes Chromium moves the
-  // filter origin right and down by the shadow reach. If this starts failing, Chromium
-  // changed that placement and the compensation must follow.
-  for (const { name, shadow } of [
-    { name: 'no shadow', shadow: 'none' },
-    { name: 'a spread shadow', shadow: '0 0 0 12px rgb(0 0 0 / 0.2)' },
-    { name: 'a blurred shadow', shadow: '0 6px 16px -4px rgb(0 0 0 / 0.3)' },
+  it('places the production filter at the border box without a shadow correction', async () => {
+    const { page, close } = await openFixture()
+    try {
+      await page.waitForFunction(() =>
+        getComputedStyle(document.getElementById('composer')).backdropFilter.startsWith('url('),
+      )
+      const box = await page.evaluate(() => {
+        const element = document.getElementById('composer')
+        const id = element.getAttribute('data-glassui-lens')
+        const source = document.getElementById(`glassui-lens-${id}`)
+        const filter = source.cloneNode(false)
+        filter.id = 'production-canary'
+        filter.setAttribute('width', '160')
+        filter.setAttribute('height', '90')
+        source.parentElement.append(filter)
+        const probe = document.createElement('div')
+        probe.style.cssText =
+          'position:fixed;left:200px;top:200px;width:160px;height:90px;backdrop-filter:url(#production-canary)'
+        probe.style.boxShadow = getComputedStyle(element).boxShadow
+        // Read the actual material decorations without painting the composer's fill over the marker.
+        probe.setAttribute('data-glassui-ignore', '')
+        document.body.append(probe)
+        const svg = 'http://www.w3.org/2000/svg'
+        const flood = document.createElementNS(svg, 'feFlood')
+        flood.setAttribute('flood-color', '#ff0000')
+        for (const [key, value] of Object.entries({ x: 20, y: 10, width: 8, height: 8 }))
+          flood.setAttribute(key, String(value))
+        // Fill the full region, as the actual refraction filter does.
+        const clear = document.createElementNS(svg, 'feFlood')
+        clear.setAttribute('flood-opacity', '0')
+        clear.setAttribute('result', 'clear')
+        flood.setAttribute('result', 'mark')
+        const merge = document.createElementNS(svg, 'feMerge')
+        for (const name of ['clear', 'mark']) {
+          const node = document.createElementNS(svg, 'feMergeNode')
+          node.setAttribute('in', name)
+          merge.append(node)
+        }
+        filter.replaceChildren(clear, flood, merge)
+        const rect = probe.getBoundingClientRect()
+        return { x: rect.x, y: rect.y }
+      })
+      const red = await findRed(page, { ...box, width: 160, height: 90 })
+      assert.ok(red, 'the production filter rendered')
+      assert.ok(Math.abs(red.x - 20) <= 1 && Math.abs(red.y - 10) <= 1, `marker at ${red.x},${red.y}, expected 20,10`)
+    } finally {
+      await close()
+    }
+  })
+
+  for (const { name, property, value } of [
+    { name: 'a spread shadow', property: 'box-shadow', value: '0 0 0 12px rgb(0 0 0 / 0.2)' },
+    { name: 'a blurred shadow', property: 'box-shadow', value: '0 6px 16px -4px rgb(0 0 0 / 0.3)' },
+    { name: 'an outer focus ring', property: 'outline', value: '4px solid blue' },
   ]) {
-    it(`places SVG backdrop filters where the engine expects with ${name}`, async () => {
-      const { page, close } = await openFixture({ plugin: false })
+    it(`uses plain blur with ${name} and resumes after it is removed`, async () => {
+      const { page, close } = await openFixture()
       try {
-        const style = await page.evaluate(shadow => {
-          const probe = document.createElement('div')
-          probe.id = 'canary-probe'
-          probe.style.cssText = `position:fixed;left:200px;top:200px;width:160px;height:90px;box-shadow:${shadow}`
-          document.body.append(probe)
-          const { boxShadow, outlineStyle, outlineWidth, outlineOffset } = getComputedStyle(probe)
-          return { boxShadow, outlineStyle, outlineWidth, outlineOffset }
-        }, shadow)
-        // The engine's own arithmetic decides where the marker should land.
-        const shift = inkShift(style)
-        await page.evaluate(({ x, y }) => {
-          const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-          svg.setAttribute('width', '0')
-          svg.setAttribute('height', '0')
-          svg.style.position = 'absolute'
-          // Like the lens filter, the output covers the whole region (Chromium misplaces
-          // the output of a filter whose result is smaller than its region).
-          svg.innerHTML =
-            `<filter id="canary" x="${-x}" y="${-y}" width="160" height="90" filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse">` +
-            '<feFlood flood-opacity="0" result="clear"/>' +
-            `<feFlood flood-color="#ff0000" x="${-x + 20}" y="${-y + 10}" width="8" height="8" result="mark"/>` +
-            '<feMerge><feMergeNode in="clear"/><feMergeNode in="mark"/></feMerge></filter>'
-          document.body.append(svg)
-          document.getElementById('canary-probe').style.backdropFilter = 'url(#canary)'
-        }, shift)
-        const box = { x: 200, y: 200 }
-        await settle(page)
-        const red = await findRed(page, { x: box.x - 40, y: box.y - 40, width: 240, height: 170 })
-        assert.ok(red, 'the probe filter rendered')
-        assert.ok(Math.abs(red.x - 60) <= 1 && Math.abs(red.y - 50) <= 1, `marker at ${red.x},${red.y}, expected 60,50`)
+        const composer = page.locator('#composer')
+        await page.waitForFunction(() =>
+          getComputedStyle(document.getElementById('composer')).backdropFilter.startsWith('url('),
+        )
+        await composer.evaluate((element, { property, value }) => element.style.setProperty(property, value), {
+          property,
+          value,
+        })
+        await settle(page, 10)
+        await page.waitForFunction(() =>
+          getComputedStyle(document.getElementById('composer')).backdropFilter.startsWith('blur('),
+        )
+        await composer.evaluate((element, property) => element.style.removeProperty(property), property)
+        await page.waitForFunction(() =>
+          getComputedStyle(document.getElementById('composer')).backdropFilter.startsWith('url('),
+        )
       } finally {
         await close()
       }

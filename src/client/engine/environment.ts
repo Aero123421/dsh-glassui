@@ -16,6 +16,8 @@ export interface Environment {
   reducedMotion(): boolean
   /** The user asked the OS to reduce transparency. */
   reducedTransparency(): boolean
+  /** The user asked for stronger contrast. */
+  increasedContrast(): boolean
   /** A forced-colors (high contrast) mode is active; the plugin then stays off entirely. */
   forcedColors(): boolean
   /**
@@ -37,6 +39,7 @@ export function detectEnvironment(win: Window & typeof globalThis): Environment 
   const fine = query('(hover: hover) and (pointer: fine)')
   const motion = query('(prefers-reduced-motion: reduce)')
   const transparency = query('(prefers-reduced-transparency: reduce)')
+  const contrast = query('(prefers-contrast: more)')
   const forced = query('(forced-colors: active)')
   // User-Agent Client Hints exist only in secure contexts; DSH Web is often opened over
   // plain http on a LAN address, so fall back to the user agent string there.
@@ -53,9 +56,12 @@ export function detectEnvironment(win: Window & typeof globalThis): Environment 
     finePointer: () => fine?.matches ?? false,
     reducedMotion: () => motion?.matches ?? false,
     reducedTransparency: () => transparency?.matches ?? false,
+    increasedContrast: () => contrast?.matches ?? false,
     forcedColors: () => forced?.matches ?? false,
     onChange(listener) {
-      const lists = [fine, motion, transparency, forced].filter((list): list is MediaQueryList => list !== undefined)
+      const lists = [fine, motion, transparency, contrast, forced].filter(
+        (list): list is MediaQueryList => list !== undefined,
+      )
       for (const list of lists) list.addEventListener('change', listener)
       return () => {
         for (const list of lists) list.removeEventListener('change', listener)

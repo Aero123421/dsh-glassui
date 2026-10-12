@@ -151,6 +151,11 @@ const SHARED: Declarations = {
     'inset -1px -1px 0 -0.5px rgb(255 255 255 / var(--glassui-rim-lo))',
     '0 0 0 0.5px var(--glassui-edge)',
   ].join(', '),
+  '--glassui-contained-rim': [
+    'inset 1px 1.5px 0 -0.5px rgb(255 255 255 / var(--glassui-rim-hi))',
+    'inset -1px -1px 0 -0.5px rgb(255 255 255 / var(--glassui-rim-lo))',
+    'inset 0 0 0 0.5px var(--glassui-edge)',
+  ].join(', '),
   [MENU_TOKENS.filter]: 'var(--glassui-filter)',
   // Each watched fill as <body> sees it, nudges and other plugins' overrides
   // included. Surfaces mix their glass from these; a surface cannot reference
@@ -182,19 +187,18 @@ const ELEVATION: Declarations = {
 }
 
 /**
- * Elevation of a refracting surface. Chromium offsets an SVG backdrop filter by
- * however far the element's shadows reach past its top-left edge, so these
- * shadows never reach past the top, left or right edge: each is shrunk by its
- * blur extent (1.5 × blur) and only shows below the surface.
+ * Refracting surfaces have no ink overflow at the top or left. Chromium versions
+ * disagree on whether that overflow offsets SVG backdrop filters.
  */
 const CONTAINED_ELEVATION: Declarations = Object.fromEntries(
   (['panel', 'prominent', 'soft'] as const).map(tier => [
     ELEVATION_TOKENS[tier],
-    elevation(
-      ELEVATION_SENTINELS[tier],
+    [
+      'var(--glassui-contained-rim)',
       '0 1px 2px -3px rgb(0 0 0 / 0.12)',
       '0 16px 22px -33px var(--glassui-contact)',
-    ),
+      `0 0 0 0 ${ELEVATION_SENTINELS[tier]}`,
+    ].join(', '),
   ]),
 )
 
@@ -302,12 +306,12 @@ function wallpaperRules(): string[] {
 
 function accessibilityRules(): string {
   return [
-    `@media (prefers-reduced-transparency: reduce) {\n${rule(ROOT, { '--glassui-floor': 1 })}\n}`,
     `@media (prefers-contrast: more) {\n${[
       rule(ROOT, { '--glassui-floor': 0.85 }),
       rule(BODY, { '--glassui-edge': 'rgb(0 0 0 / 0.45)' }),
       rule(BODY_DARK, { '--glassui-edge': 'rgb(255 255 255 / 0.35)' }),
     ].join('\n')}\n}`,
+    `@media (prefers-reduced-transparency: reduce) {\n${rule(ROOT, { '--glassui-floor': 1 })}\n}`,
     // Without backdrop blur, translucent fills would put text over unblurred content.
     `@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {\n${rule(ROOT, { '--glassui-floor': 0.9 })}\n}`,
   ].join('\n')
@@ -327,7 +331,11 @@ export function buildStylesheet(): string {
     rule(BODY, { ...LIGHT, ...SHARED }),
     rule(BODY_DARK, DARK),
     rule(`${BODY}, ${BODY} *`, ELEVATION),
-    rule(`${S}[${ATTR_LENS}]`, CONTAINED_ELEVATION),
+    rule(`${S}[${ATTR_LENS}]`, {
+      ...CONTAINED_ELEVATION,
+      // Menus can use literal shadows rather than elevation tokens.
+      'box-shadow': 'var(--glassui-contained-rim), 0 16px 22px -33px var(--glassui-contact)',
+    }),
     ...surfaceRules(),
     ...materialRules(),
     ...wallpaperRules(),

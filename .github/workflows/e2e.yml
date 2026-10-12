@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        dsh: ${{ github.event_name == 'schedule' && fromJSON('["", "latest", "alpha"]') || fromJSON('[""]') }}
+        dsh: ${{ github.event_name == 'schedule' && fromJSON('["", "0.2.0-rc.2", "latest", "alpha"]') || fromJSON('["", "0.2.0-rc.2"]') }}
     steps:
       - uses: actions/checkout@v7
         with:

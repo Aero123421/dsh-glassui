@@ -1,6 +1,6 @@
 # Glass UI for DSH
 
-**A Liquid Glass–style material for DSH (DeepSeek Harness) Web.** Translucent, blurred and refracting glass for the sidebar, composer, dialogs, menus and toasts — over a wallpaper of your choice. It works alongside every other plugin and keeps working across DSH updates. Unofficial.
+**A Liquid Glass–style material for DSH (DeepSeek Harness) Web.** Translucent, blurred and refracting glass for the sidebar, composer, dialogs, menus and toasts — over a wallpaper of your choice. An unofficial plugin, independent of DeepSeek and Apple.
 
 [日本語](README.ja.md)
 
@@ -15,8 +15,8 @@
 
 ## Highlights
 
-- **Follows DSH, not its markup.** Surfaces are found by the design tokens DSH paints them with (`--dsw-*`), never by class names, so a DSH update that rearranges its components does not break the theme.
-- **Stays out of the way.** Other plugins' theme overrides always win, the plugin never uses `!important`, and turning it off removes every trace without a reload.
+- **Follows DSH, not its markup.** Surfaces are found by the design tokens DSH paints them with (`--dsw-*`), never by class names, Compatibility checks and tests against real DSH detect changes to those tokens and APIs.
+- **Stays out of the way.** Theme overrides on `<body>` take precedence. You can exclude individual elements, or turn glass off without reloading.
 - **Fast.** No per-frame work while idle; DOM changes are scanned in time-sliced batches and rendered Markdown is skipped entirely.
 - **Accessible.** Honors _reduce transparency_, _increase contrast_, _reduce motion_ and Windows high-contrast mode. Code blocks become a denser glass that keeps syntax colors legible — or stay solid, if you prefer.
 - **Real refraction where the browser can do it.** In Chromium-based browsers the edges of the composer, menus and toasts bend the background like a lens. Elsewhere you get the same glass without the lens.
@@ -25,16 +25,18 @@
 
 ## Install
 
-Requires DSH `>=0.2.0-rc.2 <0.3.0`.
+Requires DSH `>=0.2.0-rc.2 <0.3.0`. Tested with 0.2.0-rc.2 and 0.2.1-alpha.2.
 
-1. Copy the URL of `dsh-glassui-<version>.tgz` from the [latest release](https://github.com/Aero123421/dsh-glassui/releases/latest).
-2. In DSH Web, open **Plugins → Add plugin**, paste the URL and install. Or from a terminal:
+1. In DSH Web, open **Plugins → Add plugin** and enter `github:Aero123421/dsh-glassui#v0.1.0`.
+2. Or install from a terminal:
 
    ```sh
-   dsh plugin --profile web add https://github.com/Aero123421/dsh-glassui/releases/download/v0.1.0/dsh-glassui-0.1.0.tgz
+   dsh plugin --profile web add github:Aero123421/dsh-glassui#v0.1.0
    ```
 
 3. Restart DSH if it asks you to, then reload DSH Web. The glass is on by default; **Settings → Glass UI** has the controls.
+
+The [release tarball](https://github.com/Aero123421/dsh-glassui/releases/latest) can also be installed by its URL. Both distributions include the compiled plugin.
 
 To remove it, uninstall it from **Plugins** (or `dsh plugin --profile web remove dsh-glassui`).
 
@@ -47,7 +49,7 @@ All settings apply live and are stored in your DSH profile, so they are also ava
 | Glass material             | on        | Master switch. Off restores DSH's own look immediately.                                                                                                                                                                                      |
 | Transparency               | 35        | 0 is ultra clear, 100 fully tinted.                                                                                                                                                                                                          |
 | Wallpaper                  | Automatic | Bay, Sunrise, Meadow, Graphite, Lagoon, Dusk, Dune, the moving Tide, Aurora, Bloom and Prism, none, or a custom image. _Automatic_ uses Bay in a browser and no wallpaper in the macOS desktop app, whose window already shows your desktop. |
-| Custom wallpaper URL       | —         | An `https://` URL, a path on the DSH server, or a base64 image `data:` URL.                                                                                                                                                                  |
+| Custom wallpaper URL       | —         | An `http://` or `https://` URL, a path on the DSH server, or a base64 image `data:` URL.                                                                                                                                                     |
 | Sidebar                    | Floating  | _Floating_ insets the sidebar as a rounded pane; _Docked_ keeps DSH's layout.                                                                                                                                                                |
 | Code blocks                | Glass     | _Glass_ is a denser tint that keeps code easy to read; _Solid_ keeps DSH's opaque code blocks.                                                                                                                                               |
 | Refraction                 | on        | Lens refraction along glass edges (Chromium-based browsers).                                                                                                                                                                                 |
@@ -64,7 +66,7 @@ _Live_ wallpapers move a few large layers on the compositor; nothing runs on the
 
 ## For plugin authors
 
-Your plugin does not need to know about Glass UI. If it paints with DSH's tokens and elevations, its panels become glass like DSH's own. If you want control:
+Your plugin does not need to know about Glass UI. Panels using the watched DSH tokens and elevations can be discovered automatically. If you want control:
 
 ```html
 <!-- Never touch this element or anything inside it. -->
@@ -78,12 +80,12 @@ Token overrides applied through DSH's theme API (`ctx.theme.overrideTokens`) are
 
 ## Browser support
 
-| Browser                                         | Glass | Refraction |
-| ----------------------------------------------- | ----- | ---------- |
-| Chrome, Edge, Brave, Arc, Opera (Chromium 111+) | ✓     | ✓          |
-| DSH desktop app                                 | ✓     | ✓          |
-| Safari 16.4+                                    | ✓     | —          |
-| Firefox 115+                                    | ✓     | —          |
+| Browser                                                                  | Glass | Refraction |
+| ------------------------------------------------------------------------ | ----- | ---------- |
+| Chrome, Edge, Brave, Arc, Opera (Chromium 111+, tested with 141/143/149) | ✓     | ✓          |
+| DSH desktop app                                                          | ✓     | ✓          |
+| Safari 16.4+                                                             | ✓     | —          |
+| Firefox 115+                                                             | ✓     | —          |
 
 Without `backdrop-filter`, surfaces fall back to nearly opaque fills so text stays readable.
 

@@ -11,6 +11,7 @@ import {
   DEFAULT_SETTINGS,
   ENTRY_ID,
   MAX_EXCLUDE_LENGTH,
+  MAX_WALLPAPER_URL_LENGTH,
   SIDEBAR_STYLES,
   WALLPAPER_CHOICES,
   normalizeSettings,
@@ -47,9 +48,10 @@ export const Config = z.object({
     .volatile(),
   wallpaperUrl: z
     .string()
+    .max(MAX_WALLPAPER_URL_LENGTH)
     .default(d.wallpaperUrl)
     .description(
-      'Image used when the wallpaper is "custom": an https URL, a path on this server, or a base64 image data URL.',
+      'Image used when the wallpaper is "custom": an http(s) URL, a path on this server, or a base64 image data URL.',
     )
     .volatile(),
   sidebar: z

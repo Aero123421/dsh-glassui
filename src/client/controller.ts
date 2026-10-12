@@ -44,9 +44,13 @@ const WRITE_DELAY_MS = 300
 export class GlassController {
   private readonly engine: EngineHandle
   private stored: GlassSettings
-  private readonly pending = new Map<keyof GlassSettings, unknown>()
+  private readonly pending = new Map<keyof GlassSettings, { value: unknown }>()
   private readonly timers = new Map<keyof GlassSettings, ReturnType<typeof setTimeout>>()
   private form: SettingsForm | undefined
+  private detachForm: (() => void) | undefined
+  private writing = false
+  private failed = false
+  private disposed = false
   private save: SaveState = 'loading'
   private state: ControllerState
   private readonly listeners = new Set<() => void>()
@@ -81,24 +85,28 @@ export class GlassController {
    * @returns a function that stops following it.
    */
   attach(form: SettingsForm): () => void {
+    if (this.disposed) return () => undefined
+    this.detachForm?.()
     this.form = form
     const adopt = (): void => {
+      if (this.disposed || this.form !== form) return
       const snapshot = form.getSnapshot()
       if (snapshot.status === 'ready') this.stored = normalizeSettings(snapshot.value)
-      if (snapshot.status === 'unavailable' || (snapshot.status === 'ready' && !snapshot.writable)) this.save = 'local'
-      else if (snapshot.status === 'ready' && this.save === 'loading') this.save = 'saved'
-      // An edit the Host already reflects is no longer pending.
-      for (const [field, value] of this.pending) {
-        if (this.stored[field] === value && !this.timers.has(field) && this.save !== 'local') this.pending.delete(field)
-      }
       this.recompute()
+      void this.flush()
     }
     const stop = form.subscribe(adopt)
     adopt()
-    return () => {
+    const detach = (): void => {
       stop()
-      if (this.form === form) this.form = undefined
+      if (this.form !== form) return
+      this.form = undefined
+      this.detachForm = undefined
+      this.save = 'local'
+      this.recompute()
     }
+    this.detachForm = detach
+    return detach
   }
 
   /**
@@ -108,60 +116,80 @@ export class GlassController {
    * @param value - new value; normalized like any other input.
    */
   update<K extends keyof GlassSettings>(field: K, value: GlassSettings[K]): void {
+    if (this.disposed) return
     const next = normalizeSettings({ ...this.state.settings, [field]: value })
-    this.pending.set(field, next[field])
+    // Identity distinguishes a newer edit even when its value repeats an older one.
+    this.pending.set(field, { value: next[field] })
+    this.failed = false
     const timer = this.timers.get(field)
     if (timer !== undefined) clearTimeout(timer)
-    if (this.save !== 'local') {
-      this.timers.set(
-        field,
-        setTimeout(() => {
-          this.timers.delete(field)
-          void this.write(field)
-        }, WRITE_DELAY_MS),
-      )
-    }
+    this.timers.set(
+      field,
+      setTimeout(() => {
+        this.timers.delete(field)
+        void this.flush()
+      }, WRITE_DELAY_MS),
+    )
     this.recompute()
   }
 
   /** Re-read the engine's diagnostics (the page polls this while open). */
   refreshDiagnostics(): void {
+    if (this.disposed) return
     this.state = { ...this.state, diagnostics: this.engine.diagnostics() }
     this.emit()
   }
 
-  private async write(field: keyof GlassSettings): Promise<void> {
-    const form = this.form
-    if (!this.pending.has(field)) return
-    if (!form) {
-      // No settings form in this composition: keep the edit for this page only.
-      this.save = 'local'
-      this.recompute()
-      return
-    }
-    const value = this.pending.get(field)
-    this.save = 'saving'
-    this.recompute()
-    let accepted = false
+  private async flush(): Promise<void> {
+    if (this.writing || this.disposed) return
+    this.writing = true
     try {
-      accepted = await form.set(field, value)
-    } catch (error) {
-      console.warn('dsh-glassui: saving a setting failed', error)
+      while (this.isActive()) {
+        const form = this.form
+        const snapshot = form?.getSnapshot()
+        if (!form || snapshot?.status !== 'ready' || !snapshot.writable) break
+        const ready = [...this.pending].find(([field]) => !this.timers.has(field))
+        if (!ready) break
+        const [field, edit] = ready
+        let accepted = false
+        this.recompute()
+        try {
+          accepted = await form.set(field, edit.value)
+        } catch (error) {
+          if (this.isActive()) console.warn('dsh-glassui: saving a setting failed', error)
+        }
+        if (!this.isActive()) return
+        if (this.form !== form) continue
+        // A completion belongs to the edit and form that started it.
+        if (this.pending.get(field) !== edit) continue
+        this.pending.delete(field)
+        this.failed ||= !accepted
+        const current = form.getSnapshot()
+        if (current.status === 'ready') this.stored = normalizeSettings(current.value)
+      }
+    } finally {
+      this.writing = false
+      this.recompute()
     }
-    // A newer edit of the same field supersedes this write; it reports on its own.
-    if (this.pending.has(field) && this.pending.get(field) !== value) return
-    if (!accepted) {
-      this.pending.delete(field)
-      this.save = 'error'
-    } else {
-      if (this.stored[field] === value) this.pending.delete(field)
-      this.save = this.timers.size > 0 ? 'saving' : 'saved'
-    }
-    this.recompute()
+  }
+
+  private isActive(): boolean {
+    return !this.disposed
   }
 
   private recompute(): void {
-    const settings = normalizeSettings({ ...this.stored, ...Object.fromEntries(this.pending) })
+    if (this.disposed) return
+    const snapshot = this.form?.getSnapshot()
+    if (!snapshot) {
+      if (this.pending.size > 0) this.save = 'local'
+    } else if (snapshot.status === 'loading') this.save = 'loading'
+    else if (snapshot.status === 'unavailable' || !snapshot.writable) this.save = 'local'
+    else if (this.pending.size > 0 || this.writing) this.save = 'saving'
+    else this.save = this.failed ? 'error' : 'saved'
+    const settings = normalizeSettings({
+      ...this.stored,
+      ...Object.fromEntries([...this.pending].map(([field, edit]) => [field, edit.value])),
+    })
     const changed = !sameSettings(settings, this.state.settings)
     if (changed) this.engine.apply(settings)
     if (!changed && this.save === this.state.save) return
@@ -175,8 +203,12 @@ export class GlassController {
 
   /** Cancel pending writes. */
   dispose(): void {
+    this.disposed = true
+    this.detachForm?.()
+    this.form = undefined
     for (const timer of this.timers.values()) clearTimeout(timer)
     this.timers.clear()
+    this.pending.clear()
     this.listeners.clear()
   }
 }

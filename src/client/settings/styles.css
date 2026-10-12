@@ -2,6 +2,8 @@
    page follows DSH's light and dark palettes and any theme another plugin applies. */
 
 .glassui-page {
+  container: glassui-settings / inline-size;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -144,6 +146,8 @@
   display: flex;
   flex: none;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .glassui-stack {
@@ -302,6 +306,8 @@
 
 /* Segmented control */
 .glassui-segmented {
+  min-width: 0;
+  max-width: 100%;
   position: relative;
   display: grid;
   grid-template-columns: repeat(var(--glassui-segments), minmax(0, 1fr));
@@ -329,8 +335,8 @@
 
 .glassui-segmented__option {
   position: relative;
-  min-width: 88px;
-  height: 28px;
+  min-width: 0;
+  min-height: 28px;
   padding: 0 12px;
   border: 0;
   border-radius: 999px;
@@ -339,6 +345,7 @@
   font: inherit;
   font-size: 13px;
   cursor: pointer;
+  overflow-wrap: anywhere;
   corner-shape: round;
 }
 
@@ -350,7 +357,7 @@
 /* Wallpaper picker */
 .glassui-wallpapers {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(84px, 100%), 1fr));
   gap: 12px;
   padding: 14px 16px;
 }
@@ -476,6 +483,7 @@
 }
 
 .glassui-field__error {
+  overflow-wrap: anywhere;
   color: var(--dsw-alias-state-error-primary);
   font-size: 12px;
   line-height: 18px;
@@ -551,7 +559,7 @@
   line-height: 18px;
 }
 
-@media (max-width: 560px) {
+@container glassui-settings (max-width: 420px) {
   .glassui-hero {
     flex-direction: column;
     align-items: flex-start;
@@ -559,6 +567,14 @@
 
   .glassui-row {
     flex-wrap: wrap;
+  }
+
+  .glassui-row__text {
+    flex-basis: 100%;
+  }
+
+  .glassui-facts {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

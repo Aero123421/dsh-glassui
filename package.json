@@ -1,7 +1,7 @@
 {
   "name": "dsh-glassui",
   "version": "0.1.0",
-  "description": "A Liquid Glass-style material for DSH (DeepSeek Harness) Web that works with every other plugin and survives DSH updates. Unofficial.",
+  "description": "Liquid Glass-style theme and wallpapers for DeepSeek Harness Web.",
   "type": "module",
   "license": "MIT",
   "author": "Aero123421",
@@ -29,6 +29,7 @@
     "dist",
     "cordis.patch.yml",
     "README.md",
+    "README.ja.md",
     "LICENSE",
     "NOTICE.md"
   ],
