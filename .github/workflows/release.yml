@@ -101,9 +101,9 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: release-plugin
-          path: dist
+          path: release
       - name: SHA256SUMS
-        working-directory: dist
+        working-directory: release
         env:
           VERSION: ${{ needs.verify.outputs.version }}
         run: |
@@ -114,8 +114,8 @@ jobs:
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
-            dist/dsh-glassui-*.tgz
-            dist/SHA256SUMS
+            release/dsh-glassui-*.tgz
+            release/SHA256SUMS
       - name: Release notes
         env:
           VERSION: ${{ needs.verify.outputs.version }}
@@ -163,8 +163,8 @@ jobs:
           flags=""
           [ "$PRERELEASE" = "true" ] && flags="--prerelease"
           if gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "v${VERSION}" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+            gh release upload "v${VERSION}" "release/dsh-glassui-${VERSION}.tgz" release/SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "v${VERSION}" --notes-file notes.md --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "v${VERSION}" dist/* --title "Glass UI ${VERSION}" --notes-file notes.md --verify-tag $flags --repo "$GITHUB_REPOSITORY"
+            gh release create "v${VERSION}" "release/dsh-glassui-${VERSION}.tgz" release/SHA256SUMS --title "Glass UI ${VERSION}" --notes-file notes.md --verify-tag $flags --repo "$GITHUB_REPOSITORY"
           fi
