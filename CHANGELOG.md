@@ -6,14 +6,25 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.2.1] - 2026-10-13
+## [0.2.2] - 2026-10-13
 
 - インラインコードの背景を明暗テーマに馴染ませ、独立した不透明度設定（既定72）と文章プレビューを追加。英語・日本語・簡体字中国語、設定保存、コントラスト指定、除外とテーマ上書きに対応します。
 - 透明度の全入力値をその場で反映しながら、同じ操作で不要なメニュー描画値・屈折サイズの同期読み取りを削減。新しく開くメニューの検出と屈折のぼかし更新は維持します。
 - 静止壁紙を専用描画レイヤーで再利用し、透明度変更ごとのSVG再描画を削減。従来と同じ色・cover配置を保ち、DPR2・回転・印刷・解除を検証します。
 - ストリーミング中の除外領域探索を差分化。任意のCSS除外セレクターは従来どおり全体評価し、ポインター位置の計測をDOM書き込みより先にまとめます。
 - 壁紙選択一覧の再描画と診断JSONの生成を必要なときに絞り、カスタム壁紙キャッシュに上限を設けます。描画品質・壁紙の動き・保存の300ms debounceは維持します。
-- 性能測定と検証範囲は `docs/release-0.2.1.md` に記録。実機iPad/Android、実GPU負荷、電力・温度と長時間利用は未検証です。
+- 性能測定と検証範囲は `docs/release-0.2.2.md` に記録。実機iPad/Android、実GPU負荷、電力・温度と長時間利用は未検証です。
+
+## [0.2.1] - 2026-10-13
+
+### Fixed
+
+- Keep TypeScript 6.0.3 within typescript-eslint's supported range and Node.js 22 types aligned with the oldest supported runtime. Dependabot excludes incompatible upgrades so clean installs and release checks remain reproducible.
+- Compare the Host's reported runtime version with the package manifest in integration tests so patch releases verify the current build.
+
+### Changed
+
+- Update Playwright to 1.64.0 and React types to 19.3.0.
 
 ## [0.2.0] - 2026-10-13
 
@@ -73,7 +84,9 @@ Includes the fixes prepared for v0.1.1, whose release checks failed before publi
 
 Supports DSH `>=0.2.0-rc.2 <0.3.0`.
 
-[Unreleased]: https://github.com/Aero123421/dsh-glassui/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/Aero123421/dsh-glassui/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/Aero123421/dsh-glassui/compare/v0.1.0...v0.1.2
 [0.1.0]: https://github.com/Aero123421/dsh-glassui/releases/tag/v0.1.0
 

@@ -4,6 +4,13 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Match the oldest supported runtime (Node 22).
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      # typescript-eslint 8.71.1 requires TypeScript <6.1.0.
+      - dependency-name: 'typescript'
+        versions: ['>=6.1.0']
     groups:
       tooling:
         patterns: ['*']

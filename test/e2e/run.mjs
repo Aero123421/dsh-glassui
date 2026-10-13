@@ -114,6 +114,16 @@ async function storedEnabled(value) {
   assert.fail(`DSH did not store enabled=${value}`)
 }
 
+/** Wait for the Host's next boot rows to include a saved field. */
+async function storedSetting(field, value) {
+  const expected = JSON.stringify(field) + ':' + JSON.stringify(value)
+  for (let attempt = 0; attempt < 40; attempt++) {
+    if ((await pageHtml()).includes(expected)) return
+    await new Promise(resolve => setTimeout(resolve, 200))
+  }
+  assert.fail(`DSH did not store ${expected}`)
+}
+
 /** Open DSH in a fresh browser context and get past first-run screens. */
 async function open(scheme = 'light', contextOptions = {}) {
   const context = await browser.newContext({
@@ -318,6 +328,7 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
       assert.equal(await page.getByRole('slider', { name: 'Inline-code opacity', exact: true }).inputValue(), '72')
       await page.evaluate(() => window.__GLASSUI_TEST_LOCALE__.set('en'))
       await setRange(page.getByRole('slider', { name: 'Transparency', exact: true }), 35)
+      await storedSetting('tint', 35)
       assert.deepEqual(errors, [])
     } finally {
       await page.evaluate(() => window.__GLASSUI_TEST_LOCALE__.set('en'))
@@ -352,6 +363,7 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
         assert.equal(await page.locator('.glassui-page').evaluate(el => el.scrollWidth <= el.clientWidth + 1), true)
       }
       await setRange(page.getByRole('slider', { name: 'Inline-code opacity', exact: true }), 72)
+      await storedSetting('inlineCodeOpacity', 72)
       await page.screenshot({ path: join(out, 'inline-touch-dpr2.png') })
       assert.deepEqual(errors, [])
     } finally {
@@ -390,8 +402,15 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
             exact: true,
           })
           .waitFor()
+      } else if (process.env.GLASSUI_E2E_EXPECT_RELEASE_NETWORK_ERROR === '1') {
+        assert.equal(updateStatus.status, 'blocked')
+        assert.equal(updateStatus.reason, 'network', JSON.stringify(updateStatus))
+        await page.getByText('Could not contact the release service. Try again later.', { exact: true }).waitFor()
+        console.log(
+          '# Live GitHub release API unavailable: verified bounded network failure; update interactions below use the explicit wire fixture.',
+        )
       } else {
-        assert.equal(updateStatus.status, 'current')
+        assert.equal(updateStatus.status, 'current', JSON.stringify(updateStatus))
         await page.getByText('No newer stable release.', { exact: true }).waitFor()
       }
       let begins = 0,

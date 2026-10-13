@@ -1,4 +1,4 @@
-/*! dsh-glassui 0.2.1 | MIT License | https://github.com/Aero123421/dsh-glassui#readme */
+/*! dsh-glassui 0.2.2 | MIT License | https://github.com/Aero123421/dsh-glassui#readme */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -3607,9 +3607,9 @@ function readSettings(config) {
   });
 }
 function apply(ctx, config) {
-  applyUpdateRoutes(ctx, () => readSettings(config), "0.2.1");
+  applyUpdateRoutes(ctx, () => readSettings(config), "0.2.2");
   ctx.on("webserver/index-inject", (table) => {
-    table.push(...bootRows(readSettings(config), "0.2.1"));
+    table.push(...bootRows(readSettings(config), "0.2.2"));
   });
 }
 export {
