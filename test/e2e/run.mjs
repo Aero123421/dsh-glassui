@@ -475,7 +475,6 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
       await page.getByRole('button', { name: '更新を確認', exact: true }).click()
       await page.getByRole('button', { name: '更新する', exact: true }).waitFor()
       const checkButton = page.getByRole('button', { name: '更新を確認', exact: true })
-      const installButton = page.getByRole('button', { name: '更新する', exact: true })
       // Read both rectangles together; independent protocol calls may observe
       // different frames of DSH's automatic scroll animation.
       const [first, second] = await page.locator('.glassui-update .glassui-actions').evaluate(row => {
