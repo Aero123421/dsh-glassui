@@ -11,10 +11,13 @@ describe('nudgeRules', () => {
     const light = nudgeRules(new Map([['base', { r: 255, g: 255, b: 254, a: 1 }]]), false)
     assert.equal(
       light,
-      ':root[data-glassui] body:not([data-ds-dark-theme]):not([data-glassui-raw]) {\n  --dsw-alias-bg-base: rgb(255 255 254);\n}',
+      ':root[data-glassui] body:not([data-ds-dark-theme]):not([data-glassui-raw]):not([data-glassui-excluded]) {\n  --dsw-alias-bg-base: rgb(255 255 254);\n}',
     )
     const dark = nudgeRules(new Map([['input', { r: 30, g: 30, b: 33, a: 0.5 }]]), true)
-    assert.match(dark, /^:root\[data-glassui\] body\[data-ds-dark-theme\]:not\(\[data-glassui-raw\]\) \{/)
+    assert.match(
+      dark,
+      /^:root\[data-glassui\] body\[data-ds-dark-theme\]:not\(\[data-glassui-raw\]\):not\(\[data-glassui-excluded\]\) \{/,
+    )
     assert.match(dark, /--dsw-specific-input-major: rgb\(30 30 33 \/ 0\.5\);/)
   })
 })

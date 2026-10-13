@@ -82,6 +82,39 @@ describe('refraction', () => {
     }
   })
 
+  it('keeps blur during an ancestor resize and reuses the lens when the drag settles', async () => {
+    const { page, errors, close } = await openFixture()
+    try {
+      await page.waitForFunction(() =>
+        getComputedStyle(document.getElementById('composer')).backdropFilter.startsWith('url('),
+      )
+      const id = await page.locator('#composer').getAttribute('data-glassui-lens')
+      await page.evaluate(async () => {
+        const main = document.getElementById('main')
+        for (let index = 0; index < 12; index++) {
+          await new Promise(resolve => requestAnimationFrame(resolve))
+          main.style.width = `${800 - index * 10}px`
+          main.style.flex = 'none'
+        }
+      })
+      await page.waitForFunction(() =>
+        getComputedStyle(document.getElementById('composer')).backdropFilter.startsWith('blur('),
+      )
+      assert.equal(await page.locator('#composer').getAttribute('data-glassui-lens'), id)
+      await page.waitForFunction(() => {
+        const element = document.getElementById('composer')
+        const filter = document.getElementById(`glassui-lens-${element.getAttribute('data-glassui-lens')}`)
+        return (
+          getComputedStyle(element).backdropFilter.startsWith('url(') &&
+          Number(filter?.getAttribute('width')) === element.offsetWidth
+        )
+      })
+      assert.deepEqual(errors, [])
+    } finally {
+      await close()
+    }
+  })
+
   it('places the production filter at the border box without a shadow correction', async () => {
     const { page, close } = await openFixture()
     try {

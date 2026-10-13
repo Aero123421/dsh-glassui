@@ -161,7 +161,8 @@ describe('buildStylesheet', () => {
 
   it('captures each fill on <body> before surfaces override it', () => {
     const body = all.find(
-      rule => rule.selectors.length === 1 && rule.selectors[0] === BODY && rule.body.includes('--glassui-src-'),
+      rule =>
+        rule.selectors.length === 1 && rule.selectors[0]?.startsWith(BODY) && rule.body.includes('--glassui-src-'),
     )
     assert.ok(body)
     for (const key of FILL_KEYS) assert.ok(body.body.includes(`--glassui-src-${key}: var(${FILL_TOKENS[key]});`), key)

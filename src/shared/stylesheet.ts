@@ -8,10 +8,10 @@
  * Precedence, by design:
  * - Every rule is scoped under `:root[data-glassui]`, so removing that one
  *   attribute turns the whole sheet off.
- * - Token overrides use `:root[data-glassui] body` (specificity 0,2,1) and the
- *   dark variant `… body[data-ds-dark-theme]` (0,3,1). DSH's own token rules top
- *   out at `html[data-platform='darwin'] body[data-ds-dark-theme]` (0,2,2), so
- *   these win regardless of stylesheet order.
+ * - Token overrides use `:root[data-glassui] body` and its dark variant, excluding
+ *   opt-out subtrees. Their specificity exceeds DSH's token rules, which top out
+ *   at `html[data-platform='darwin'] body[data-ds-dark-theme]` (0,2,2), so they win
+ *   regardless of stylesheet order.
  * - No rule uses `!important`. Token overrides other plugins apply through DSH's
  *   theme API are inline styles on `<body>` and therefore always win over this
  *   sheet: the plugin sits underneath every explicit customization.
@@ -19,6 +19,7 @@
  */
 import {
   ATTR_ECHO,
+  ATTR_EXCLUDED,
   ATTR_FILL,
   ATTR_FLAT,
   ATTR_FLOAT,
@@ -79,8 +80,10 @@ export const ROOT = `:root[${ATTR_ROOT}]`
 export const BODY = `${ROOT} body`
 /** Token scope for the dark palette. */
 export const BODY_DARK = `${ROOT} body[${DARK_ATTRIBUTE}]`
+/** Opt-out roots and their descendants keep upstream styles. */
+export const INCLUDED = `:not([${ATTR_EXCLUDED}]):not([${ATTR_EXCLUDED}] *)`
 /** Scope for rules on discovered surfaces. */
-const S = `${BODY} [${ATTR_SURFACE}]`
+const S = `${BODY} [${ATTR_SURFACE}]${INCLUDED}`
 const GLASS = `${S}:not([${ATTR_SURFACE}="backdrop"]):not([${ATTR_FLAT}])`
 
 type Declarations = Readonly<Record<string, string | number>>
@@ -273,7 +276,7 @@ function surfaceRules(): string[] {
 }
 
 function materialRules(): string[] {
-  const M = `${BODY} [${ATTR_MATERIAL}]`
+  const M = `${BODY} [${ATTR_MATERIAL}]${INCLUDED}`
   return [
     rule(`${M}:not([${ATTR_MATERIAL}="none"])`, {
       '-webkit-backdrop-filter': 'blur(18px) saturate(180%)',
@@ -297,7 +300,7 @@ function wallpaperRules(): string[] {
     rule(`${ROOT}[${ATTR_WALLPAPER}]`, {
       background: `var(${VAR_WALLPAPER}) center / cover no-repeat fixed`,
     }),
-    rule(`${ROOT}[${ATTR_WALLPAPER}] body`, {
+    rule(`${ROOT}[${ATTR_WALLPAPER}] body${INCLUDED}`, {
       'background-color':
         'color-mix(in srgb, var(--dsw-alias-bg-base) calc(var(--glassui-canvas-a) * 100%), transparent)',
     }),
@@ -328,9 +331,9 @@ export function buildStylesheet(): string {
     // Screens only: printing keeps DSH's own look. Forced colors (Windows high contrast) is left alone entirely.
     '@media screen and (forced-colors: none) {',
     rule(ROOT, ROOT_PARAMETERS),
-    rule(BODY, { ...LIGHT, ...SHARED }),
-    rule(BODY_DARK, DARK),
-    rule(`${BODY}, ${BODY} *`, ELEVATION),
+    rule(`${BODY}${INCLUDED}`, { ...LIGHT, ...SHARED }),
+    rule(`${BODY_DARK}${INCLUDED}`, DARK),
+    rule(`${BODY}${INCLUDED}, ${BODY} *${INCLUDED}`, ELEVATION),
     rule(`${S}[${ATTR_LENS}]`, {
       ...CONTAINED_ELEVATION,
       // Menus can use literal shadows rather than elevation tokens.

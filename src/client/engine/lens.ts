@@ -146,7 +146,9 @@ export class Lenses {
   private verify(element: Element): void {
     const entry = this.entries.get(element)
     if (!entry || entry.timer !== undefined || !element.isConnected) return
-    if (entry.key !== this.geometryKey(element)) this.build(element)
+    // A discovery refresh can notice the new size before ResizeObserver does.
+    // Use the same blur fallback and debounce instead of rebuilding every drag frame.
+    if (entry.key !== this.geometryKey(element)) this.resized(element)
   }
 
   private deviation(): string {

@@ -37,10 +37,12 @@ import {
   FILL_TOKENS,
   MARKDOWN_HINT_ATTRIBUTE,
   PLATFORM_ATTRIBUTE,
+  RESERVED_TOKENS,
   type FillKey,
 } from '../../shared/tokens.ts'
 import { classify, type Classification, type ElementSample, type Signatures } from './classify.ts'
 import type { Environment } from './environment.ts'
+import { Exclusions } from './exclusions.ts'
 import { Highlights } from './highlights.ts'
 import { Lenses, type LensTarget } from './lens.ts'
 import { Probes, UNSET } from './probes.ts'
@@ -176,13 +178,13 @@ export class GlassEngine {
 
   private readonly probes: Probes
   private readonly sheet: DynamicSheet
+  private readonly exclusions: Exclusions
   private readonly lenses: Lenses
   private readonly highlights: Highlights
   private readonly wallpaper: Wallpaper
   private ownSheet: HTMLStyleElement | undefined
 
   private signatures: Signatures | undefined
-  private rawKey = ''
   private readonly expected = new Map<string, string>()
   private missing: FillKey[] = []
   private ambiguous: FillKey[] = []
@@ -191,11 +193,14 @@ export class GlassEngine {
   private readonly echoes = new Set<Element>()
   private readonly roots = new Set<Element>()
   private readonly singles = new Set<Element>()
+  /** Keep existing glass until its replacement can be read and committed in one frame. */
+  private readonly invalidated = new Set<Element>()
   /** Elements whose marks were just removed; they are classified again in the next frame. */
   private readonly requeue: Element[] = []
   private walkers: { root: Element; walker: TreeWalker; started: boolean }[] = []
   private frame = 0
   private paletteDirty = false
+  private exclusionsDirty = false
   private exclude = ''
   private invalidExclude = false
   private readonly stats: ScanStats = { batches: 0, inspected: 0, longestMs: 0, totalMs: 0 }
@@ -219,6 +224,7 @@ export class GlassEngine {
     this.onChange = onChange
     this.probes = new Probes(this.doc)
     this.sheet = new DynamicSheet(this.doc)
+    this.exclusions = new Exclusions(this.doc, this.sheet)
     this.lenses = new Lenses(this.doc, this.sheet)
     this.highlights = new Highlights(this.doc)
     this.wallpaper = new Wallpaper(this.doc)
@@ -276,6 +282,7 @@ export class GlassEngine {
     root.style.setProperty(VAR_TINT, String(settings.tint / 100))
     this.lenses.setBlur(this.blurPx())
     this.updateExclude(false)
+    this.refreshExclusions()
     this.refreshPalette()
     this.applyPresentation()
 
@@ -296,7 +303,14 @@ export class GlassEngine {
     this.headWatch = new this.win.MutationObserver(records => {
       if (records.some(record => !this.ownRecord(record))) this.paletteChanged()
     })
-    this.headWatch.observe(this.doc.head, { childList: true, subtree: true, characterData: true })
+    this.headWatch.observe(this.doc.head, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['href', 'media', 'disabled'],
+    })
+    this.win.addEventListener('resize', this.resized, { passive: true })
     this.doc.addEventListener('load', this.loaded, true)
     this.doc.addEventListener('transitionend', this.settled, true)
     this.doc.addEventListener('animationend', this.settled, true)
@@ -319,14 +333,18 @@ export class GlassEngine {
     this.doc.removeEventListener('load', this.loaded, true)
     this.doc.removeEventListener('transitionend', this.settled, true)
     this.doc.removeEventListener('animationend', this.settled, true)
+    this.win.removeEventListener('resize', this.resized)
     this.roots.clear()
     this.singles.clear()
+    this.invalidated.clear()
+    this.exclusionsDirty = false
     this.walkers = []
     this.requeue.length = 0
 
     this.lenses.dispose()
     this.highlights.dispose()
     this.wallpaper.dispose()
+    this.exclusions.dispose()
     this.sheet.dispose()
     this.probes.dispose()
     this.ownSheet?.remove()
@@ -335,7 +353,6 @@ export class GlassEngine {
     for (const element of this.echoes) element.removeAttribute(ATTR_ECHO)
     this.echoes.clear()
     this.signatures = undefined
-    this.rawKey = ''
     this.expected.clear()
 
     const root = this.doc.documentElement
@@ -430,7 +447,6 @@ export class GlassEngine {
       this.syncLenses()
       this.changed()
     }
-    this.rawKey = ''
     this.paletteChanged()
   }
 
@@ -450,6 +466,7 @@ export class GlassEngine {
     if (next === this.exclude) return
     this.exclude = next
     if (!rescan) return
+    this.refreshExclusions()
     if (next !== '') {
       for (const element of [...this.tagged.keys()]) if (element.closest(next)) this.untag(element)
       for (const element of this.echoes) {
@@ -467,18 +484,29 @@ export class GlassEngine {
 
   // ---- palette -----------------------------------------------------------
 
+  private refreshExclusions(): void {
+    for (const element of this.exclusions.sync(this.exclude, [...this.invalidated])) {
+      this.invalidated.add(element)
+      this.roots.add(element)
+    }
+  }
+
+  /** Media queries can change geometry, fills and elevation without DOM mutations. */
+  private readonly resized = (): void => this.paletteChanged()
+
   private paletteChanged(): void {
     if (!this.running) return
     this.paletteDirty = true
+    this.invalidated.add(this.doc.body)
+    this.roots.add(this.doc.body)
     this.schedule()
   }
 
   /**
    * Read DSH's token values, nudge the watched fills apart, and derive the
    * signatures for the current palette.
-   * @returns whether DSH's values changed since the last read.
    */
-  private refreshPalette(): boolean {
+  private refreshPalette(): void {
     const raw = this.probes.raw()
     const watched = this.watchedFills()
     // With solid code blocks, the code fills are reserved like any other content fill.
@@ -486,15 +514,20 @@ export class GlassEngine {
       ...raw.reserved,
       ...FILL_KEYS.filter(fill => !watched.includes(fill)).map(fill => raw.watched.get(fill) ?? UNSET),
     ]
-    const key = [...raw.watched.values(), ...raw.reserved, watched.length].join('|') + this.scheme()
-    const changed = key !== this.rawKey
-    this.rawKey = key
     const parsed = (value: string): Rgba | undefined => (value === UNSET ? undefined : parseColor(value))
     const nudged = nudgeApart(
       watched.map(fill => [fill, parsed(raw.watched.get(fill) ?? UNSET)] as const),
       reserved.map(parsed).filter((value): value is Rgba => value !== undefined),
     )
     this.sheet.setNudges(nudgeRules(nudged, this.scheme() === 'dark'))
+
+    // Inline theme overrides can defeat a nudge. Compare the final computed
+    // values against reserved fills too, so ordinary content never becomes glass.
+    const reservedColors = new Set(
+      [...RESERVED_TOKENS, ...FILL_KEYS.filter(fill => !watched.includes(fill)).map(fill => FILL_TOKENS[fill])].map(
+        token => this.probes.color(token),
+      ),
+    )
 
     const fills = new Map<string, FillKey>()
     const seen = new Map<string, FillKey[]>()
@@ -510,12 +543,11 @@ export class GlassEngine {
     this.ambiguous = []
     for (const [value, keys] of seen) {
       const [only] = keys
-      if (keys.length === 1 && only !== undefined) fills.set(value, only)
+      if (keys.length === 1 && only !== undefined && !reservedColors.has(value)) fills.set(value, only)
       else this.ambiguous.push(...keys)
     }
     this.signatures = { fills, elevation: this.probes.elevation(), menuFilter: this.probes.menuFilter() }
     this.expected.clear()
-    return changed
   }
 
   private readonly loaded = (event: Event): void => {
@@ -552,14 +584,16 @@ export class GlassEngine {
       if (record.type === 'attributes') {
         if (!(record.target instanceof this.win.Element)) continue
         if (record.attributeName === 'style' && this.onlyOwnStyleChanged(record)) continue
+        this.exclusionsDirty = true
         // An ancestor can change descendants' fills, exclusions or stacking.
-        this.clearSubtree(record.target)
+        this.invalidated.add(record.target)
         this.roots.add(record.target)
         continue
       }
+      this.exclusionsDirty = true
       for (const node of record.addedNodes) {
         if (node instanceof this.win.Element && !node.hasAttribute(ATTR_OWNED)) {
-          this.clearSubtree(node)
+          this.invalidated.add(node)
           this.roots.add(node)
         }
       }
@@ -579,16 +613,42 @@ export class GlassEngine {
     return plain(record.oldValue ?? '') === plain((record.target as Element).getAttribute('style') ?? '')
   }
 
-  private clearSubtree(root: Element): void {
-    for (const element of [...this.tagged.keys()]) if (root.contains(element)) this.untag(element)
-    for (const element of this.echoes) {
-      if (root.contains(element)) {
-        element.removeAttribute(ATTR_ECHO)
-        this.echoes.delete(element)
-      }
+  /**
+   * Refresh already visible glass before scanning new candidates. A resize drag
+   * can change an ancestor's style in every animation frame. Removing its marks
+   * in the mutation callback would paint an opaque frame before the next scan.
+   * Read and restore the existing surfaces together, including nested fills and
+   * echoes, and let syncLenses reconcile only the final set.
+   */
+  private reclassify(): boolean {
+    if (this.invalidated.size === 0) return false
+    const roots = [...this.invalidated]
+    this.invalidated.clear()
+    const echoes = new Set(this.echoes)
+    const elements = [...this.tagged.keys(), ...this.echoes]
+      .filter(element => roots.some(root => root.contains(element)))
+      .sort((a, b) => (a.compareDocumentPosition(b) & this.win.Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+    if (elements.length === 0) return false
+    for (const element of elements) {
+      if (this.tagged.has(element)) this.untag(element)
+      if (this.echoes.delete(element)) element.removeAttribute(ATTR_ECHO)
     }
-    this.syncLenses()
-    this.changed()
+    const decisions = elements
+      .filter(element => element.isConnected && this.admissible(element))
+      .map(element => this.inspect(element))
+    for (const decision of decisions) this.commit(decision)
+    // Echoes depend on the restored parent's glass color. Resolve them now too,
+    // rather than briefly painting a second layer while a later scan catches up.
+    const restoredEchoes = decisions.filter(
+      ({ element }) => echoes.has(element) && this.isEcho(element, this.win.getComputedStyle(element).backgroundColor),
+    )
+    for (const { element } of restoredEchoes) {
+      this.untag(element)
+      element.setAttribute(ATTR_ECHO, '')
+      this.echoes.add(element)
+    }
+    this.stats.inspected += decisions.length
+    return true
   }
 
   private schedule(): void {
@@ -599,13 +659,16 @@ export class GlassEngine {
     this.frame = 0
     if (!this.running) return
     const started = performance.now()
+    if (this.exclusionsDirty || this.paletteDirty) {
+      this.exclusionsDirty = false
+      this.refreshExclusions()
+    }
     if (this.paletteDirty) {
       this.paletteDirty = false
-      const changed = this.refreshPalette()
+      this.refreshPalette()
       this.applyPresentation()
-      if (changed) this.roots.add(this.doc.body)
-      else for (const element of this.tagged.keys()) this.singles.add(element)
     }
+    let dirty = this.reclassify()
     for (const root of this.roots) {
       if (!this.admissible(root)) continue
       // A walk already under way may have passed the new subtree, so only a pending walk can absorb it.
@@ -644,7 +707,6 @@ export class GlassEngine {
       this.walkers.shift()
     }
 
-    let dirty = false
     for (const decision of decisions) dirty = this.commit(decision) || dirty
     for (const element of this.requeue.splice(0)) this.singles.add(element)
     if (dirty) this.syncLenses()
