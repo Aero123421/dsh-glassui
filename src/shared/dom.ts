@@ -36,6 +36,8 @@ export const ATTR_LENS = 'data-glassui-lens'
 
 /** Public opt-out: the element and its descendants are never touched. */
 export const ATTR_IGNORE = 'data-glassui-ignore'
+/** Internal marker on opt-out roots, used to stop inherited material and global elevation overrides. */
+export const ATTR_EXCLUDED = 'data-glassui-excluded'
 /** Public opt-in: `regular`, `dense` or `smoke` glass on an element of another plugin. */
 export const ATTR_MATERIAL = 'data-glassui-material'
 export const MATERIALS = ['regular', 'dense', 'smoke'] as const
@@ -82,6 +84,7 @@ export const FOOTPRINT_SELECTOR = [
   ATTR_PAINT,
   ATTR_FLOAT,
   ATTR_LENS,
+  ATTR_EXCLUDED,
   ATTR_OWNED,
 ]
   .map(name => `[${name}]`)

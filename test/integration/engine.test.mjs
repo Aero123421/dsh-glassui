@@ -17,6 +17,7 @@ const FOOTPRINT = [
   'data-glassui-paint',
   'data-glassui-float',
   'data-glassui-lens',
+  'data-glassui-excluded',
   'data-glassui-owned',
 ]
   .map(name => `[${name}]`)
@@ -159,6 +160,65 @@ describe('discovery', () => {
       assert.ok(glass.r < 48 && glass.g < 48 && glass.b < 48 && glass.a < 0.9, `dark glass, got ${composer}`)
       const diagnostics = await page.evaluate(() => window.__fixture.debug().diagnostics())
       assert.deepEqual(diagnostics.ambiguousTokens, [])
+    } finally {
+      await close()
+    }
+  })
+})
+
+describe('layout resizing', () => {
+  it('keeps existing glass through every frame of an ancestor resize drag', async () => {
+    const { page, errors, close } = await openFixture({ start: false })
+    try {
+      await page.addStyleTag({
+        content:
+          '.frame { display: grid; grid-template-columns: 280px 1fr } .sidebar { width: auto }' +
+          '.composer { width: var(--content-width, auto) }',
+      })
+      await page.evaluate(() => window.__fixture.start())
+      await settle(page, 12)
+      const result = await page.evaluate(async () => {
+        const frame = document.getElementById('frame')
+        const main = document.getElementById('main')
+        const sidebar = document.getElementById('sidebar')
+        const composer = document.getElementById('composer')
+        const code = document.getElementById('code')
+        const header = document.getElementById('code-header')
+        const before = sidebar.getBoundingClientRect().width
+        const samples = []
+        for (let index = 1; index <= 20; index++) {
+          await new Promise(resolve =>
+            requestAnimationFrame(() => {
+              // DSH writes the grid size, then publishes conversation widths
+              // through custom properties as the split pane changes size.
+              frame.style.gridTemplateColumns = `${280 + index * 4}px 1fr`
+              main.style.setProperty('--content-width', `${600 - index * 4}px`)
+              queueMicrotask(() => {
+                samples.push({
+                  sidebar: sidebar.getAttribute('data-glassui-surface'),
+                  composer: composer.getAttribute('data-glassui-surface'),
+                  code: code.getAttribute('data-glassui-surface'),
+                  filter: getComputedStyle(sidebar).backdropFilter,
+                  header: getComputedStyle(header).backgroundColor,
+                })
+                resolve()
+              })
+            }),
+          )
+        }
+        return { before, after: sidebar.getBoundingClientRect().width, samples }
+      })
+      assert.ok(result.after > result.before, 'the boundary really moved')
+      for (const sample of result.samples) {
+        assert.equal(sample.sidebar, 'sidebar', 'sidebar glass survives before paint')
+        assert.equal(sample.composer, 'composer', 'composer glass survives before paint')
+        assert.equal(sample.code, 'code', 'content glass survives before paint')
+        assert.match(sample.filter, /blur\(/, 'the sidebar keeps its blur during the drag')
+        assert.equal(color(sample.header).a, 0, 'nested code headers stay clear')
+      }
+      await settle(page, 12)
+      assert.equal((await surfaces(page))['sidebar-inner']?.flat, true)
+      assert.deepEqual(errors, [])
     } finally {
       await close()
     }

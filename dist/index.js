@@ -88,6 +88,7 @@ var ATTR_ECHO = "data-glassui-echo";
 var ATTR_PAINT = "data-glassui-paint";
 var ATTR_FLOAT = "data-glassui-float";
 var ATTR_LENS = "data-glassui-lens";
+var ATTR_EXCLUDED = "data-glassui-excluded";
 var ATTR_MATERIAL = "data-glassui-material";
 var ATTR_OWNED = "data-glassui-owned";
 var VAR_TINT = "--glassui-t";
@@ -107,6 +108,7 @@ var FOOTPRINT_SELECTOR = [
   ATTR_PAINT,
   ATTR_FLOAT,
   ATTR_LENS,
+  ATTR_EXCLUDED,
   ATTR_OWNED
 ].map((name2) => `[${name2}]`).join(",");
 
@@ -682,7 +684,8 @@ function paneRim(top, bottom, edge) {
 var ROOT = `:root[${ATTR_ROOT}]`;
 var BODY = `${ROOT} body`;
 var BODY_DARK = `${ROOT} body[${DARK_ATTRIBUTE}]`;
-var S = `${BODY} [${ATTR_SURFACE}]`;
+var INCLUDED = `:not([${ATTR_EXCLUDED}]):not([${ATTR_EXCLUDED}] *)`;
+var S = `${BODY} [${ATTR_SURFACE}]${INCLUDED}`;
 var GLASS = `${S}:not([${ATTR_SURFACE}="backdrop"]):not([${ATTR_FLAT}])`;
 function rule(selector, declarations) {
   const body = Object.entries(declarations).map(([property, value]) => `  ${property}: ${value};`).join("\n");
@@ -843,7 +846,7 @@ function surfaceRules() {
   return rules;
 }
 function materialRules() {
-  const M = `${BODY} [${ATTR_MATERIAL}]`;
+  const M = `${BODY} [${ATTR_MATERIAL}]${INCLUDED}`;
   return [
     rule(`${M}:not([${ATTR_MATERIAL}="none"])`, {
       "-webkit-backdrop-filter": "blur(18px) saturate(180%)",
@@ -866,7 +869,7 @@ function wallpaperRules() {
     rule(`${ROOT}[${ATTR_WALLPAPER}]`, {
       background: `var(${VAR_WALLPAPER}) center / cover no-repeat fixed`
     }),
-    rule(`${ROOT}[${ATTR_WALLPAPER}] body`, {
+    rule(`${ROOT}[${ATTR_WALLPAPER}] body${INCLUDED}`, {
       "background-color": "color-mix(in srgb, var(--dsw-alias-bg-base) calc(var(--glassui-canvas-a) * 100%), transparent)"
     })
   ];
@@ -896,9 +899,9 @@ function buildStylesheet() {
     // Screens only: printing keeps DSH's own look. Forced colors (Windows high contrast) is left alone entirely.
     "@media screen and (forced-colors: none) {",
     rule(ROOT, ROOT_PARAMETERS),
-    rule(BODY, { ...LIGHT, ...SHARED }),
-    rule(BODY_DARK, DARK),
-    rule(`${BODY}, ${BODY} *`, ELEVATION),
+    rule(`${BODY}${INCLUDED}`, { ...LIGHT, ...SHARED }),
+    rule(`${BODY_DARK}${INCLUDED}`, DARK),
+    rule(`${BODY}${INCLUDED}, ${BODY} *${INCLUDED}`, ELEVATION),
     rule(`${S}[${ATTR_LENS}]`, {
       ...CONTAINED_ELEVATION,
       // Menus can use literal shadows rather than elevation tokens.

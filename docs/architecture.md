@@ -57,6 +57,8 @@ Several tokens often share a value (in the light palette the base, layer and inp
 
 While it reads, the engine sets `data-glassui-raw` on `<body>`, which suspends the nudges for that instant, so it always sees DSH's own values (plus any inline overrides from other plugins).
 
+After nudging, final computed colors are checked against both other watched fills and reserved fills. An inline override can defeat a nudge; ambiguous fills are then omitted from discovery and reported in diagnostics.
+
 ### 2. Read, classify, mark
 
 For each candidate element (block-level tags only; text, media, `<pre>`/`<code>` and tables are skipped, and inside rendered Markdown only `<div>`s, where code blocks live, are looked at), the engine reads its computed `background-color`, `box-shadow`, `backdrop-filter` and size, and [`classify()`](../src/client/engine/classify.ts) — a pure function — decides:
@@ -78,9 +80,11 @@ Some components pass their fill on to a part through a variable of their own —
 ### 3. Keep it correct
 
 - A `MutationObserver` on `<body>` queues changed subtrees after child-list, class, inline-style and opt-out changes. Changes to the plugin’s own pointer properties are ignored.
-- Palette changes — the dark attribute, inline styles on `<body>`, any stylesheet added to `<head>` by DSH or another plugin — trigger a fresh read of the token values; if they changed, everything is re-classified.
+- Existing surfaces in changed subtrees are reclassified together at the start of the next frame, before scanning new candidates. Their old marks stay in place until that frame, so dragging a layout boundary never paints an intermediate opaque state. Refraction keeps plain blur until the new size settles.
+- Palette changes — the dark attribute, inline styles on `<body>`, stylesheet additions, edits or loads — trigger a fresh token read and a rescan even when token values are unchanged. New component rules can change elevation or fills without changing the palette.
+- Window resize events refresh the palette and reclassify surfaces, updating media-query geometry, floating sidebar eligibility and the refraction area limit.
 - `transitionend` / `animationend` re-check the element concerned.
-- Work runs in `requestAnimationFrame` with a target budget of 8 ms per frame, checked between batches of reads. Palette refreshes, browser style recalculation and writes can exceed that target.
+- Work runs in `requestAnimationFrame` with a target budget of 8 ms per frame for new candidates, checked between batches of reads. Palette refreshes, reclassification of existing surfaces, browser style recalculation and writes can exceed that target.
 
 Tagged elements are verified cheaply: each kind has an expected computed background (read once from a probe), so a tagged element that still shows it keeps its marks without further work.
 
@@ -90,7 +94,9 @@ All visual work is done by CSS.
 
 ### Precedence
 
-Every rule is scoped under `:root[data-glassui]`, so removing that one attribute switches the whole sheet off. Token overrides use `:root[data-glassui] body` (specificity 0,2,1) and `… body[data-ds-dark-theme]` (0,3,1). DSH's most specific token rule is `html[data-platform='darwin'] body[data-ds-dark-theme]` (0,2,2), so the plugin wins regardless of stylesheet order — but **inline** values on `<body>`, which is how DSH applies other plugins' `ctx.theme.overrideTokens`, always win over it. No rule uses `!important`.
+Every rule is scoped under `:root[data-glassui]`, so removing that one attribute switches the whole sheet off. Token overrides use `:root[data-glassui] body` and its dark variant, with additional exclusions for opted-out subtrees. Their specificity exceeds DSH's most specific token rule, `html[data-platform='darwin'] body[data-ds-dark-theme]` (0,2,2), so the plugin wins regardless of stylesheet order — but **inline** values on `<body>`, which is how DSH applies other plugins' `ctx.theme.overrideTokens`, always win over it. No rule uses `!important`.
+
+Opt-out roots receive an internal `data-glassui-excluded` marker. Elevation and material rules skip these subtrees. The engine briefly suspends its root switch while reading the original watched and menu tokens at each boundary, then restores it in the same task. A zero-specificity rule restores those inherited tokens, preserving ancestor theme overrides while allowing component declarations to win. These snapshots refresh after DOM, stylesheet, palette and viewport changes; disabling the plugin removes the internal markers and rules.
 
 ### Glass
 

@@ -33,6 +33,7 @@ const FOOTPRINT = [
   'data-glassui-paint',
   'data-glassui-float',
   'data-glassui-lens',
+  'data-glassui-excluded',
   'data-glassui-owned',
 ]
   .map(name => `[${name}]`)
@@ -185,6 +186,57 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
       }
     })
   }
+
+  it('keeps glass throughout a sidebar boundary drag', async () => {
+    const { page, errors, close } = await open()
+    try {
+      const handle = page.locator('[data-side="sidebar"]')
+      const box = await handle.boundingBox()
+      assert.ok(box, 'DSH exposes its sidebar resize handle')
+      const before = await page.evaluate(() => {
+        const targets = ['sidebar', 'composer'].map(kind =>
+          [...document.querySelectorAll(`[data-glassui-surface="${kind}"]:not([data-glassui-flat])`)].find(
+            element => !element.closest('[data-glassui-owned]'),
+          ),
+        )
+        if (targets.some(element => !element)) throw new Error('sidebar or composer glass was not found')
+        const state = { targets, frames: 0, missing: 0, frame: 0 }
+        window.__glassuiResizeWatch = state
+        const sample = () => {
+          state.frames++
+          if (
+            targets.some(
+              element =>
+                !element.hasAttribute('data-glassui-surface') || getComputedStyle(element).backdropFilter === 'none',
+            )
+          )
+            state.missing++
+          state.frame = requestAnimationFrame(sample)
+        }
+        state.frame = requestAnimationFrame(sample)
+        return targets[0].getBoundingClientRect().width
+      })
+      const x = box.x + box.width / 2
+      const y = box.y + box.height / 2
+      await page.mouse.move(x, y)
+      await page.mouse.down()
+      for (let step = 1; step <= 25; step++) await page.mouse.move(x + step * 4, y)
+      await page.mouse.up()
+      await page.waitForTimeout(400)
+      const result = await page.evaluate(() => {
+        const state = window.__glassuiResizeWatch
+        cancelAnimationFrame(state.frame)
+        delete window.__glassuiResizeWatch
+        return { frames: state.frames, missing: state.missing, width: state.targets[0].getBoundingClientRect().width }
+      })
+      assert.ok(result.width > before, 'the drag changed the sidebar width')
+      assert.ok(result.frames > 0, 'sampled rendered frames during the drag')
+      assert.equal(result.missing, 0, 'glass and blur never disappear between resize updates')
+      assert.deepEqual(errors, [])
+    } finally {
+      await close()
+    }
+  })
 
   it('adds its settings section and applies edits live', async () => {
     const { page, close } = await open()

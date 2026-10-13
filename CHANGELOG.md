@@ -6,6 +6,13 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep the sidebar, panels and composer glass while dragging layout boundaries. Refresh existing surfaces in one frame and retain plain blur until resized refraction filters settle.
+- Reclassify surfaces and refraction eligibility when viewport changes alter responsive geometry, and when late stylesheets change a component without changing theme tokens.
+- Preserve original theme fills, shadows and menu blur in excluded subtrees, including opt-outs nested inside glass surfaces.
+- Leave watched fills unmodified when inline theme overrides make their final computed color indistinguishable from a reserved content fill, and report the collision in diagnostics.
+
 ## [0.1.0] - 2026-10-12
 
 ### Added

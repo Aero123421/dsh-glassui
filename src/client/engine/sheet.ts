@@ -3,10 +3,10 @@
  * and one rule per refraction filter. It is the only stylesheet the client
  * half writes at runtime, and it is removed on shutdown.
  */
-import { ATTR_FLAT, ATTR_LENS, ATTR_OWNED, ATTR_RAW, ATTR_SURFACE } from '../../shared/dom.ts'
+import { ATTR_EXCLUDED, ATTR_FLAT, ATTR_LENS, ATTR_OWNED, ATTR_RAW, ATTR_SURFACE } from '../../shared/dom.ts'
 import type { Rgba } from '../../shared/color.ts'
 import { formatColor } from '../../shared/color.ts'
-import { BODY, ROOT } from '../../shared/stylesheet.ts'
+import { BODY, INCLUDED, ROOT } from '../../shared/stylesheet.ts'
 import { DARK_ATTRIBUTE, FILL_TOKENS, type FillKey } from '../../shared/tokens.ts'
 
 /**
@@ -20,7 +20,7 @@ export function nudgeRules(nudged: ReadonlyMap<FillKey, Rgba>, dark: boolean): s
   if (nudged.size === 0) return ''
   const scheme = dark ? `[${DARK_ATTRIBUTE}]` : `:not([${DARK_ATTRIBUTE}])`
   const declarations = [...nudged].map(([key, color]) => `  ${FILL_TOKENS[key]}: ${formatColor(color)};`).join('\n')
-  return `${ROOT} body${scheme}:not([${ATTR_RAW}]) {\n${declarations}\n}`
+  return `${ROOT} body${scheme}:not([${ATTR_RAW}]):not([${ATTR_EXCLUDED}]) {\n${declarations}\n}`
 }
 
 /**
@@ -30,7 +30,7 @@ export function nudgeRules(nudged: ReadonlyMap<FillKey, Rgba>, dark: boolean): s
  */
 export function lensRule(id: number): string {
   return (
-    `${BODY} [${ATTR_SURFACE}][${ATTR_LENS}="${id}"]:not([${ATTR_SURFACE}="backdrop"]):not([${ATTR_FLAT}]) {\n` +
+    `${BODY} [${ATTR_SURFACE}]${INCLUDED}[${ATTR_LENS}="${id}"]:not([${ATTR_SURFACE}="backdrop"]):not([${ATTR_FLAT}]) {\n` +
     `  backdrop-filter: url(#glassui-lens-${id}) saturate(180%) brightness(1.04);\n}`
   )
 }
@@ -40,6 +40,7 @@ export class DynamicSheet {
   private readonly doc: Document
   private element: HTMLStyleElement | undefined
   private nudges = ''
+  private exclusions = ''
   private readonly lenses = new Map<number, string>()
 
   constructor(doc: Document) {
@@ -50,6 +51,13 @@ export class DynamicSheet {
   setNudges(css: string): void {
     if (css === this.nudges) return
     this.nudges = css
+    this.flush()
+  }
+
+  /** @param css - original token values at opt-out boundaries. */
+  setExclusions(css: string): void {
+    if (css === this.exclusions) return
+    this.exclusions = css
     this.flush()
   }
 
@@ -74,7 +82,7 @@ export class DynamicSheet {
       this.element.setAttribute(ATTR_OWNED, 'dynamic')
       this.doc.head.append(this.element)
     }
-    this.element.textContent = [this.nudges, ...this.lenses.values()].filter(Boolean).join('\n')
+    this.element.textContent = [this.nudges, this.exclusions, ...this.lenses.values()].filter(Boolean).join('\n')
   }
 
   /** Remove the stylesheet. */
@@ -82,6 +90,7 @@ export class DynamicSheet {
     this.element?.remove()
     this.element = undefined
     this.nudges = ''
+    this.exclusions = ''
     this.lenses.clear()
   }
 }
