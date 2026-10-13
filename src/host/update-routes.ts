@@ -83,7 +83,7 @@ export function applyUpdateRoutes(ctx: UpdateHost, readSettings: () => GlassSett
               const settings = settingsOf(payload.settings)
               if (!sameSettings(readSettings(), settings)) throw new Error('settings')
               if (!updates.running) expected = settings
-              value = await updates.begin(payload.candidateId, payload.requestId)
+              value = await updates.begin(payload.candidateId, payload.requestId, payload.profileKey)
             }
             return Response.json(
               { type: 'server-response', rpcId, result: { ok: true, value } },
@@ -92,7 +92,7 @@ export function applyUpdateRoutes(ctx: UpdateHost, readSettings: () => GlassSett
           } catch (error) {
             if (rpcId === undefined) return new Response('invalid request', { status: 400 })
             const code =
-              error instanceof Error && ['settings', 'busy', 'invalid-request'].includes(error.message)
+              error instanceof Error && ['settings', 'busy', 'invalid-request', 'profile'].includes(error.message)
                 ? error.message
                 : 'update-failed'
             return Response.json(

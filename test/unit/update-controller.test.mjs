@@ -10,6 +10,7 @@ function storage() {
     removeItem: key => map.delete(key),
   }
 }
+const profileKey = 'a'.repeat(64)
 const candidate = { id: 'release', version: '0.3.0' }
 test('update waits for real settings settlement and rejected save never sends begin', async () => {
   let finish,
@@ -28,7 +29,7 @@ test('update waits for real settings settlement and rejected save never sends be
             assert.deepEqual(payload.settings, DEFAULT_SETTINGS)
             return { ok: true, value: { requestId: payload.requestId, status: 'restart-required' } }
           }
-          return { ok: true, value: { status: 'restart-required' } }
+          return { ok: true, value: { status: 'restart-required', profileKey } }
         },
       },
     },
@@ -41,7 +42,7 @@ test('update waits for real settings settlement and rejected save never sends be
     () => DEFAULT_SETTINGS,
     saved,
   )
-  controller.publish({ status: 'available', candidate })
+  controller.publish({ status: 'available', candidate, profileKey })
   const pending = controller.begin()
   await controller.begin()
   assert.equal(requests, 0)
@@ -65,7 +66,7 @@ test('update waits for real settings settlement and rejected save never sends be
     () => DEFAULT_SETTINGS,
     storage(),
   )
-  rejected.publish({ status: 'available', candidate })
+  rejected.publish({ status: 'available', candidate, profileKey })
   await rejected.begin()
   assert.equal(rejected.state.status, 'failed')
   assert.equal(rejected.state.reason, 'settings')
@@ -79,7 +80,12 @@ test('lost begin response retains operation id; explicit refusal clears it befor
       call: async (_base, method, payload) => {
         methods.push({ method, payload })
         if (method.endsWith('begin')) throw new Error('disconnected')
-        return { ok: true, value: { status: 'unknown', requestId: payload.requestId } }
+        return {
+          ok: true,
+          value: method.endsWith('status')
+            ? { status: 'idle', profileKey }
+            : { status: 'unknown', profileKey, requestId: payload.requestId },
+        }
       },
     },
   }
@@ -89,7 +95,7 @@ test('lost begin response retains operation id; explicit refusal clears it befor
     () => DEFAULT_SETTINGS,
     saved,
   )
-  old.publish({ status: 'available', candidate })
+  old.publish({ status: 'available', candidate, profileKey })
   await old.begin()
   old.dispose()
   const next = new UpdateController(
@@ -128,11 +134,86 @@ test('connection reset during settlement or root disposal cannot admit a stale o
     () => DEFAULT_SETTINGS,
     storage(),
   )
-  controller.publish({ status: 'available', candidate })
+  controller.publish({ status: 'available', candidate, profileKey })
   const preparing = controller.begin()
   controller.dispose()
   finish()
   await preparing
   assert.equal(sent, 0)
   assert.equal(released, 1)
+})
+
+test('same origin profile switch never reconciles another profile and retains original lost receipt', async () => {
+  const saved = storage(),
+    calls = []
+  let current = profileKey
+  const other = 'b'.repeat(64)
+  const connection = {
+    rpc: {
+      call: async (_base, method, payload) => {
+        calls.push({ method, payload })
+        if (method.endsWith('begin')) throw new Error('lost response')
+        return {
+          ok: true,
+          value: method.endsWith('status')
+            ? { status: 'idle', profileKey: current }
+            : { status: 'unknown', profileKey: current, requestId: payload.requestId },
+        }
+      },
+    },
+  }
+  const controller = new UpdateController(
+    connection,
+    async () => () => {},
+    () => DEFAULT_SETTINGS,
+    saved,
+  )
+  controller.publish({ status: 'available', candidate, profileKey })
+  await controller.begin()
+  const original = controller.requestId
+  current = other
+  await controller.load()
+  assert.equal(controller.state.status, 'idle')
+  assert.equal(controller.requestId, undefined)
+  assert.equal(calls.filter(call => call.method.endsWith('reconcile')).length, 0)
+  current = profileKey
+  await controller.load()
+  assert.equal(calls.at(-1).payload.requestId, original)
+  assert.equal(calls.at(-1).payload.profileKey, profileKey)
+  assert.equal(controller.state.status, 'unknown')
+  controller.dispose()
+})
+
+test('late begin response from previous profile cannot overwrite current receipt', async () => {
+  let finish
+  const saved = storage(),
+    other = 'b'.repeat(64)
+  const controller = new UpdateController(
+    {
+      rpc: {
+        call: async (_base, method, payload) => {
+          if (method.endsWith('begin'))
+            return new Promise(resolve => {
+              finish = () =>
+                resolve({ ok: true, value: { status: 'installing', profileKey, requestId: payload.requestId } })
+            })
+          return { ok: true, value: { status: 'idle', profileKey: other } }
+        },
+      },
+    },
+    async () => () => {},
+    () => DEFAULT_SETTINGS,
+    saved,
+  )
+  controller.publish({ status: 'available', candidate, profileKey })
+  const begin = controller.begin()
+  await new Promise(resolve => setImmediate(resolve))
+  await controller.load()
+  finish()
+  await begin
+  assert.equal(controller.profileKey, other)
+  assert.equal(controller.requestId, undefined)
+  assert.equal(controller.state.status, 'idle')
+  assert.equal(saved.getItem('dsh-glassui:update:' + other), undefined)
+  controller.dispose()
 })

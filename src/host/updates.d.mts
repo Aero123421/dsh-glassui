@@ -33,6 +33,7 @@ export interface Candidate {
 }
 export interface View {
   status: Status
+  profileKey?: string
   runtimeVersion?: string
   installedVersion?: string
   version?: string
@@ -54,7 +55,7 @@ export class PluginUpdates {
   running: View | null
   status(): Promise<View>
   check(): Promise<View>
-  begin(id: unknown, operationId: unknown): Promise<View>
+  begin(id: unknown, operationId: unknown, profileKey: unknown): Promise<View>
   reconcile(requestId: unknown): Promise<View>
   dispose(): void
 }

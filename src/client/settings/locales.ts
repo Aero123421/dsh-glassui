@@ -7,6 +7,7 @@
 export const NS = 'dsh-glassui'
 
 export const en = {
+  updateReason_profile: 'The connected profile changed. Check again.',
   updateReason_storage: 'Could not write the update files to the profile.',
   updateReason_interrupted: 'The download was interrupted before installation. Check again.',
   updateTitle: 'Glass UI plugin',
@@ -131,6 +132,7 @@ export type CopyKey = keyof typeof en
 type Copy = Readonly<Record<CopyKey, string>>
 
 export const ja: Copy = {
+  updateReason_profile: '接続先の設定環境が変わりました。再度確認してください。',
   updateReason_storage: 'profile内に更新用ファイルを保存できません。',
   updateReason_interrupted: '導入前の取得処理が中断されました。再度確認してください。',
   updateTitle: 'Glass UIプラグイン',
@@ -251,6 +253,7 @@ export const ja: Copy = {
 }
 
 export const zh: Copy = {
+  updateReason_profile: '连接的配置环境已改变。请重新检查。',
   updateTitle: 'Glass UI插件',
   updateIdle: '尚未检查更新。',
   updateChecking: '正在检查更新…',

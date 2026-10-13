@@ -162,8 +162,8 @@ test('single pinned install preserves disabled selection; journal supports recon
   const checked = await updater.check(),
     requestId = randomUUID()
   assert.equal(checked.status, 'available')
-  await updater.begin(checked.candidate.id, requestId)
-  await updater.begin(checked.candidate.id, requestId)
+  await updater.begin(checked.candidate.id, requestId, updater.base().profileKey)
+  await updater.begin(checked.candidate.id, requestId, updater.base().profileKey)
   await settle(updater)
   assert.equal(calls.length, 1)
   assert.equal(calls[0][0], `github:${REPOSITORY}#${tag}`)
@@ -194,7 +194,7 @@ test('missing manager/read-only/source reject before networking; login or save b
   assert.equal((await missing.updater.status()).reason, 'manager-unavailable')
   const busy = await fixture(t, { isBusy: () => true })
   await busy.updater.check()
-  await assert.rejects(busy.updater.begin('7', randomUUID()), /busy/)
+  await assert.rejects(busy.updater.begin('7', randomUUID(), busy.updater.base().profileKey), /busy/)
 })
 test('checksum or manifest mismatch prevents manager call; tgz stages a persistent verified file', async t => {
   const bad = await fixture(t, {
@@ -203,14 +203,14 @@ test('checksum or manifest mismatch prevents manager call; tgz stages a persiste
   })
   await bad.updater.check()
   const id = randomUUID()
-  await bad.updater.begin('7', id)
+  await bad.updater.begin('7', id, bad.updater.base().profileKey)
   await settle(bad.updater)
   assert.equal(bad.calls.length, 0)
   assert.equal((await bad.updater.reconcile(id)).reason, 'checksum')
   const good = await fixture(t)
   good.bundle.source = download + filename
   await good.updater.check()
-  await good.updater.begin('7', randomUUID())
+  await good.updater.begin('7', randomUUID(), good.updater.base().profileKey)
   await settle(good.updater)
   assert.ok(good.calls[0][0].startsWith(join(good.directory, '.dsh-glassui-updates', 'verified-')))
 })
@@ -244,7 +244,7 @@ test('verified archive with wrong package metadata is refused and disposal abort
   })
   await bad.updater.check()
   const id = randomUUID()
-  await bad.updater.begin('7', id)
+  await bad.updater.begin('7', id, bad.updater.base().profileKey)
   await settle(bad.updater)
   assert.equal(bad.calls.length, 0)
   assert.equal((await bad.updater.reconcile(id)).reason, 'metadata')
@@ -254,7 +254,7 @@ test('verified archive with wrong package metadata is refused and disposal abort
     signal.throwIfAborted()
     return Response.json(release)
   }
-  await stopped.updater.begin('7', randomUUID())
+  await stopped.updater.begin('7', randomUUID(), stopped.updater.base().profileKey)
   stopped.updater.dispose()
   await settle(stopped.updater)
   assert.equal(stopped.calls.length, 0)
@@ -281,7 +281,7 @@ test('post-invocation transport failure remains unknown and reconciles the origi
   }
   await updater.check()
   const id = randomUUID()
-  await updater.begin('7', id)
+  await updater.begin('7', id, updater.base().profileKey)
   await settle(updater)
   assert.equal((await updater.reconcile(id)).status, 'restart-required')
   assert.equal(waited, 1)
@@ -330,7 +330,7 @@ test('disposal or active login during the awaited journal save cannot start mana
       }
     }
     await updater.check()
-    await updater.begin('7', randomUUID())
+    await updater.begin('7', randomUUID(), updater.base().profileKey)
     await waiting
     if (action === 'dispose') updater.dispose()
     else busy = true

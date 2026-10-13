@@ -274,8 +274,22 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
         await anonymous.dispose()
       }
 
+      const response = page.waitForResponse(response => response.url().endsWith('/api/dsh-glassui/update-check'))
       await page.getByRole('button', { name: 'Check plugin update', exact: true }).click()
-      await page.getByText('No newer stable release.', { exact: true }).waitFor()
+      const updateStatus = (await (await response).json()).result.value
+      // rc.2 listBundles omits source; automatic source selection must remain blocked.
+      if (dshVersion === '0.2.0-rc.2') {
+        assert.equal(updateStatus.status, 'blocked')
+        assert.equal(updateStatus.reason, 'source')
+        await page
+          .getByText('This installation source requires a manual update. Its version pin will be preserved.', {
+            exact: true,
+          })
+          .waitFor()
+      } else {
+        assert.equal(updateStatus.status, 'current')
+        await page.getByText('No newer stable release.', { exact: true }).waitFor()
+      }
       let begins = 0,
         submitted
       await page.route('**/api/dsh-glassui/update-check', async route => {
@@ -288,6 +302,7 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
               value: {
                 status: 'available',
                 runtimeVersion: manifest.version,
+                profileKey: updateStatus.profileKey,
                 candidate: {
                   id: 'fixture',
                   version: '0.3.0',
@@ -514,7 +529,7 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
       // The engine starts before DSH has finished workspace/model bootstrap.
       // Wait for those real UI seats before opening an overlay after reload.
       await page.getByText('Default workspace', { exact: true }).first().waitFor()
-      await page.getByText('DeepSeek-V4.1-Flash', { exact: true }).last().waitFor()
+      await page.locator('[data-composer-input][contenteditable="true"]').first().waitFor()
       await openSettings(page)
       await page.getByRole('radio', { name: 'Automatic' }).click()
       await page.waitForFunction(() => document.querySelector('[data-glassui-owned="wallpaper"]') === null)

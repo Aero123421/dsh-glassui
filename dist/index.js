@@ -2366,7 +2366,11 @@ var PluginUpdates = class {
     return { manager, bundle, source, dshVersion };
   }
   base() {
-    return { runtimeVersion: this.version, releases: RELEASES };
+    return {
+      runtimeVersion: this.version,
+      releases: RELEASES,
+      profileKey: this.profileDir ? createHash("sha256").update(PACKAGE + "\0" + resolve(this.profileDir)).digest("hex") : void 0
+    };
   }
   async lastOperation() {
     try {
@@ -2435,11 +2439,12 @@ var PluginUpdates = class {
     const { id, version, url, notes, compatibility } = candidate;
     return { id, version, url, notes, compatibility };
   }
-  async begin(id, operationId) {
+  async begin(id, operationId, profileKey) {
+    if (!profileKey || profileKey !== this.base().profileKey) throw new Error("profile");
     if (typeof operationId !== "string") throw new Error("invalid-request");
     const requestId = updateRequestId(operationId);
     await this.capability();
-    if (this.running?.requestId === requestId) return this.running;
+    if (this.running?.requestId === requestId) return { ...this.base(), ...this.running };
     try {
       await readFile(join(this.cacheDir, `${requestId}.json`));
       return this.reconcile(requestId);
@@ -2463,7 +2468,7 @@ var PluginUpdates = class {
     void this.execute(candidate, this.running).finally(() => {
       this.running = null;
     });
-    return this.running;
+    return { ...this.base(), ...this.running };
   }
   async save(operation) {
     const directory = await this.privateDir(), file = join(directory, `${operation.requestId}.json`);
@@ -2612,7 +2617,7 @@ function applyUpdateRoutes(ctx, readSettings2, version) {
               const settings = settingsOf(payload.settings);
               if (!sameSettings(readSettings2(), settings)) throw new Error("settings");
               if (!updates.running) expected = settings;
-              value = await updates.begin(payload.candidateId, payload.requestId);
+              value = await updates.begin(payload.candidateId, payload.requestId, payload.profileKey);
             }
             return Response.json(
               { type: "server-response", rpcId, result: { ok: true, value } },
@@ -2620,7 +2625,7 @@ function applyUpdateRoutes(ctx, readSettings2, version) {
             );
           } catch (error) {
             if (rpcId === void 0) return new Response("invalid request", { status: 400 });
-            const code = error instanceof Error && ["settings", "busy", "invalid-request"].includes(error.message) ? error.message : "update-failed";
+            const code = error instanceof Error && ["settings", "busy", "invalid-request", "profile"].includes(error.message) ? error.message : "update-failed";
             return Response.json(
               {
                 type: "server-response",

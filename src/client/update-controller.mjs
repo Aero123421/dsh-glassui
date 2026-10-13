@@ -17,19 +17,33 @@ export class UpdateController {
     this.generation = 0
     this.closed = false
     this.timer = null
-    try {
-      this.requestId = storage?.getItem(STORAGE) || undefined
-    } catch {
-      /* Storage is optional; the Host journals admitted requests. */
-    }
+    this.profileKey = undefined
+    this.requestId = undefined
   }
   getSnapshot = () => this.state
   subscribe = listener => {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
   }
+  storageKey() {
+    return this.profileKey ? `${STORAGE}:${this.profileKey}` : undefined
+  }
+  selectProfile(key) {
+    const next = typeof key === 'string' && /^[a-f0-9]{64}$/.test(key) ? key : undefined
+    if (next === this.profileKey) return
+    this.profileKey = next
+    this.requestId = undefined
+    if (next) {
+      try {
+        this.requestId = this.storage?.getItem(this.storageKey()) || undefined
+      } catch {
+        /* Optional storage. */
+      }
+    }
+  }
   publish(state) {
     if (this.closed) return
+    if (state.profileKey) this.selectProfile(state.profileKey)
     this.state = state
     for (const listener of this.listeners) listener()
   }
@@ -59,15 +73,17 @@ export class UpdateController {
     const generation = ++this.generation
     clearTimeout(this.timer)
     try {
-      const state = await this.call(
-        this.requestId ? 'reconcile' : 'status',
-        this.requestId ? { requestId: this.requestId } : {},
-      )
+      const status = await this.call('status')
+      if (this.closed || generation !== this.generation) return
+      this.selectProfile(status.profileKey)
+      const state = this.requestId
+        ? await this.call('reconcile', { requestId: this.requestId, profileKey: this.profileKey })
+        : status
       if (this.closed || generation !== this.generation) return
       if (state.requestId) {
         this.requestId = state.requestId
         try {
-          this.storage?.setItem(STORAGE, state.requestId)
+          this.storage?.setItem(this.storageKey(), state.requestId)
         } catch {
           /* Storage is optional; the Host journals admitted requests. */
         }
@@ -98,7 +114,7 @@ export class UpdateController {
     }
   }
   async begin() {
-    if (this.closed || this.state.status !== 'available') return
+    if (this.closed || !this.profileKey || this.state.status !== 'available') return
     const candidate = this.state.candidate,
       generation = ++this.generation
     this.publish({ ...this.state, status: 'settling' })
@@ -106,7 +122,8 @@ export class UpdateController {
     try {
       release = await this.settleSettings()
     } catch {
-      this.publish({ ...this.state, status: 'failed', reason: 'settings' })
+      if (!this.closed && generation === this.generation)
+        this.publish({ ...this.state, status: 'failed', reason: 'settings' })
       return
     }
     if (this.closed || generation !== this.generation) {
@@ -115,7 +132,7 @@ export class UpdateController {
     }
     this.requestId = crypto.randomUUID()
     try {
-      this.storage?.setItem(STORAGE, this.requestId)
+      this.storage?.setItem(this.storageKey(), this.requestId)
     } catch {
       /* Storage is optional; the Host journals admitted requests. */
     }
@@ -125,11 +142,13 @@ export class UpdateController {
         candidateId: candidate.id,
         requestId: this.requestId,
         settings: this.settings(),
+        profileKey: this.profileKey,
       })
+      if (this.closed || generation !== this.generation) return
       if (typeof state.requestId !== 'string') throw new Error('invalid request')
       this.requestId = state.requestId
       try {
-        this.storage?.setItem(STORAGE, state.requestId)
+        this.storage?.setItem(this.storageKey(), state.requestId)
       } catch {
         /* Storage is optional; the Host journals admitted requests. */
       }
@@ -138,10 +157,11 @@ export class UpdateController {
         await this.load()
       }
     } catch (error) {
+      if (this.closed || generation !== this.generation) return
       if (error.rejected) {
         this.requestId = undefined
         try {
-          this.storage?.removeItem(STORAGE)
+          this.storage?.removeItem(this.storageKey())
         } catch {
           /* Storage is optional; the Host journals admitted requests. */
         }
@@ -152,9 +172,11 @@ export class UpdateController {
           status: error.rejected ? 'failed' : 'unknown',
           reason: error.message.endsWith('/busy')
             ? 'busy'
-            : error.message.endsWith('/settings')
-              ? 'settings'
-              : 'network',
+            : error.message.endsWith('/profile')
+              ? 'profile'
+              : error.message.endsWith('/settings')
+                ? 'settings'
+                : 'network',
         })
     } finally {
       release()

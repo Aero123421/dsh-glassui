@@ -295,7 +295,15 @@ export class PluginUpdates {
     return { manager, bundle, source, dshVersion }
   }
   base() {
-    return { runtimeVersion: this.version, releases: RELEASES }
+    return {
+      runtimeVersion: this.version,
+      releases: RELEASES,
+      profileKey: this.profileDir
+        ? createHash('sha256')
+            .update(PACKAGE + '\0' + resolve(this.profileDir))
+            .digest('hex')
+        : undefined,
+    }
   }
   async lastOperation() {
     try {
@@ -368,11 +376,12 @@ export class PluginUpdates {
     const { id, version, url, notes, compatibility } = candidate
     return { id, version, url, notes, compatibility }
   }
-  async begin(id, operationId) {
+  async begin(id, operationId, profileKey) {
+    if (!profileKey || profileKey !== this.base().profileKey) throw new Error('profile')
     if (typeof operationId !== 'string') throw new Error('invalid-request')
     const requestId = updateRequestId(operationId)
     await this.capability()
-    if (this.running?.requestId === requestId) return this.running
+    if (this.running?.requestId === requestId) return { ...this.base(), ...this.running }
     try {
       await readFile(join(this.cacheDir, `${requestId}.json`))
       return this.reconcile(requestId)
@@ -397,7 +406,7 @@ export class PluginUpdates {
     void this.execute(candidate, this.running).finally(() => {
       this.running = null
     })
-    return this.running
+    return { ...this.base(), ...this.running }
   }
   async save(operation) {
     const directory = await this.privateDir(),
