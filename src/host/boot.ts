@@ -6,7 +6,7 @@
  * The row shapes mirror DSH's `IndexInjection` (`@deepseek-ai/dsh-host-webserver`).
  * They are plain JSON, so DSH can also ship them to static deployments.
  */
-import { ATTR_ROOT, ATTR_SIDEBAR, ATTR_WALLPAPER, VAR_TINT, VAR_WALLPAPER } from '../shared/dom.ts'
+import { ATTR_ROOT, ATTR_SIDEBAR, ATTR_WALLPAPER, VAR_INLINE_OPACITY, VAR_TINT, VAR_WALLPAPER } from '../shared/dom.ts'
 import { BOOT_GLOBAL, isSafeWallpaperUrl, type BootPayload, type GlassSettings } from '../shared/settings.ts'
 import { buildStylesheet } from '../shared/stylesheet.ts'
 import { DARK_ATTRIBUTE, PLATFORM_ATTRIBUTE } from '../shared/tokens.ts'
@@ -76,6 +76,7 @@ function bootScript(settings: GlassSettings): string {
     `    root.setAttribute(${scriptJson(ATTR_ROOT)}, 'on')`,
     `    root.setAttribute(${scriptJson(ATTR_SIDEBAR)}, ${scriptJson(settings.sidebar)})`,
     `    root.style.setProperty(${scriptJson(VAR_TINT)}, ${scriptJson(String(settings.tint / 100))})`,
+    `    root.style.setProperty(${scriptJson(VAR_INLINE_OPACITY)}, ${scriptJson(String(settings.inlineCodeOpacity / 100))})`,
     `    var wallpaper = ${scriptJson(wallpaper ?? null)}`,
     `    if (!wallpaper || (wallpaper.skipOnDarwin && root.getAttribute(${scriptJson(PLATFORM_ATTRIBUTE)}) === 'darwin')) return`,
     `    var dark = !!document.body && document.body.hasAttribute(${scriptJson(DARK_ATTRIBUTE)})`,

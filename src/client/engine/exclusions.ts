@@ -1,10 +1,10 @@
 /** Preserve DSH's token values at opt-out boundaries, including inside a glass surface. */
 import { ATTR_EXCLUDED, ATTR_IGNORE, ATTR_OWNED, ATTR_ROOT } from '../../shared/dom.ts'
 import { ROOT } from '../../shared/stylesheet.ts'
-import { FILL_TOKENS, MENU_TOKENS } from '../../shared/tokens.ts'
+import { FILL_TOKENS, INLINE_CODE_TOKEN, MENU_TOKENS } from '../../shared/tokens.ts'
 import type { DynamicSheet } from './sheet.ts'
 
-const TOKENS = [...Object.values(FILL_TOKENS), ...Object.values(MENU_TOKENS)]
+const TOKENS = [...Object.values(FILL_TOKENS), ...Object.values(MENU_TOKENS), INLINE_CODE_TOKEN]
 
 /** Scoped resets have zero specificity: a component's own declarations still win. */
 export class Exclusions {
@@ -12,6 +12,7 @@ export class Exclusions {
   private readonly sheet: DynamicSheet
   private readonly entries = new Map<Element, { id: number; css: string }>()
   private nextId = 1
+  private initialized = false
 
   constructor(doc: Document, sheet: DynamicSheet) {
     this.doc = doc
@@ -20,10 +21,19 @@ export class Exclusions {
 
   /** Refresh opt-outs and return roots whose inclusion changed. */
   sync(selector: string, invalidated: readonly Element[]): Element[] {
+    const candidates =
+      selector !== '' || !this.initialized
+        ? [...this.doc.querySelectorAll(`[${ATTR_IGNORE}]${selector ? `, ${selector}` : ''}`)]
+        : [
+            ...[...this.entries.keys()].filter(element => element.hasAttribute(ATTR_IGNORE)),
+            ...invalidated.flatMap(root => [
+              ...(root.hasAttribute(ATTR_IGNORE) ? [root] : []),
+              ...(root.children.length > 0 ? [...root.querySelectorAll(`[${ATTR_IGNORE}]`)] : []),
+            ]),
+          ]
+    this.initialized = true
     const next = new Set(
-      [...this.doc.querySelectorAll(`[${ATTR_IGNORE}]${selector ? `, ${selector}` : ''}`)].filter(
-        element => this.doc.body.contains(element) && !element.closest(`[${ATTR_OWNED}]`),
-      ),
+      candidates.filter(element => this.doc.body.contains(element) && !element.closest(`[${ATTR_OWNED}]`)),
     )
     const changed: Element[] = []
     for (const element of this.entries.keys()) {
@@ -70,6 +80,7 @@ export class Exclusions {
   dispose(): void {
     for (const element of this.entries.keys()) element.removeAttribute(ATTR_EXCLUDED)
     this.entries.clear()
+    this.initialized = false
     this.sheet.setExclusions('')
   }
 }

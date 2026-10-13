@@ -7,6 +7,13 @@
 export const NS = 'dsh-glassui'
 
 export const en = {
+  'inline.label': 'Inline-code opacity',
+  'inline.readable': 'Readable',
+  'inline.hint':
+    'Independent of code blocks and Transparency. Recommended: 60–85. Contrast preferences may raise opacity.',
+  'inline.preview': 'Inline-code preview',
+  'inline.example': 'Try these in your message:',
+
   updateReason_profile: 'The connected profile changed. Check again.',
   updateReason_storage: 'Could not write the update files to the profile.',
   updateReason_interrupted: 'The download was interrupted before installation. Check again.',
@@ -132,6 +139,13 @@ export type CopyKey = keyof typeof en
 type Copy = Readonly<Record<CopyKey, string>>
 
 export const ja: Copy = {
+  'inline.label': 'インラインコードの不透明度',
+  'inline.readable': '読みやすい',
+  'inline.hint':
+    'コードブロックや透明度とは別の設定です。推奨は60〜85。コントラスト設定によって不透明度が高くなる場合があります。',
+  'inline.preview': 'インラインコードのプレビュー',
+  'inline.example': '文章の中で使う例：',
+
   updateReason_profile: '接続先の設定環境が変わりました。再度確認してください。',
   updateReason_storage: 'profile内に更新用ファイルを保存できません。',
   updateReason_interrupted: '導入前の取得処理が中断されました。再度確認してください。',
@@ -253,6 +267,12 @@ export const ja: Copy = {
 }
 
 export const zh: Copy = {
+  'inline.label': '行内代码不透明度',
+  'inline.readable': '易读',
+  'inline.hint': '独立于代码块和透明度。推荐：60–85。对比度偏好可能提高不透明度。',
+  'inline.preview': '行内代码预览',
+  'inline.example': '在消息中使用：',
+
   updateReason_profile: '连接的配置环境已改变。请重新检查。',
   updateTitle: 'Glass UI插件',
   updateIdle: '尚未检查更新。',

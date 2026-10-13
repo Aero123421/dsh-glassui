@@ -30,6 +30,7 @@ describe('normalizeSettings', () => {
       wallpaperUrl: 'https://example.com/a.jpg',
       sidebar: 'docked',
       codeBlocks: 'solid',
+      inlineCodeOpacity: 72,
       refraction: false,
       highlights: false,
       exclude: '.terminal',
@@ -55,6 +56,20 @@ describe('normalizeSettings', () => {
     assert.equal(normalizeSettings({ tint: 250 }).tint, 100)
     assert.equal(normalizeSettings({ tint: Number.NaN }).tint, DEFAULT_SETTINGS.tint)
     assert.equal(normalizeSettings({ tint: Number.POSITIVE_INFINITY }).tint, DEFAULT_SETTINGS.tint)
+  })
+
+  it('normalizes independent inline-code opacity and migrates old settings', () => {
+    assert.equal(normalizeSettings({ tint: 0 }).inlineCodeOpacity, 72)
+    for (const [input, expected] of [
+      [42.6, 43],
+      [-1, 0],
+      [150, 100],
+      [NaN, 72],
+      [Infinity, 72],
+      ['0', 72],
+    ])
+      assert.equal(normalizeSettings({ inlineCodeOpacity: input }).inlineCodeOpacity, expected)
+    assert.equal(normalizeSettings({ inlineCodeOpacity: 0, tint: 83 }).tint, 83)
   })
 
   it('trims text and rejects oversized text', () => {

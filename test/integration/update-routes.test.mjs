@@ -1,5 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+const { version } = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
 import * as host from '../../dist/index.js'
 function fixture(config = {}) {
   const routes = new Map(),
@@ -31,7 +33,7 @@ test('optional manager leaves boot and settings working; authenticated route sha
   const result = await call(routes, 'status')
   assert.equal(result.result.value.status, 'blocked')
   assert.equal(result.result.value.reason, 'manager-unavailable')
-  assert.equal(result.result.value.runtimeVersion, '0.2.0')
+  assert.equal(result.result.value.runtimeVersion, version)
   const failure = await call(routes, 'begin', { settings: { tint: 'invalid' }, candidateId: 'x', requestId: 'x' })
   assert.equal(failure.result.error.code, 'dsh-glassui/invalid-request')
   assert.equal(JSON.stringify(failure).includes('invalid'), true)
@@ -51,6 +53,7 @@ test('another client setting change refuses update admission before any installa
       wallpaperUrl: '',
       sidebar: 'floating',
       codeBlocks: 'glass',
+      inlineCodeOpacity: 72,
       refraction: true,
       highlights: true,
       exclude: '',

@@ -32,12 +32,15 @@ export const FILL_KEYS = Object.keys(FILL_TOKENS) as readonly FillKey[]
 /** Fills of code blocks: glass only while the code block setting asks for it. */
 export const CODE_FILLS: ReadonlySet<FillKey> = new Set(['code', 'codeBanner'])
 
+/** Inline-code background remains reserved from surface discovery. */
+export const INLINE_CODE_TOKEN = '--dsw-alias-markdown-inline-code'
+
 /**
  * Other background tokens. Watched fills are nudged away from their values so an
  * element painted with one of these is never mistaken for a watched surface.
  */
 export const RESERVED_TOKENS = [
-  '--dsw-alias-markdown-inline-code',
+  INLINE_CODE_TOKEN,
   '--dsw-alias-markdown-citation',
   '--dsw-alias-markdown-tag',
   '--dsw-alias-markdown-placeholder',
