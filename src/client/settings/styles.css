@@ -681,6 +681,7 @@
   }
 
   .glassui-button {
+    box-sizing: border-box;
     height: auto;
     min-height: 30px;
     max-width: 100%;

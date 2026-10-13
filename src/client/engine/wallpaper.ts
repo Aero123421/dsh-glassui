@@ -274,7 +274,10 @@ export class Wallpaper {
     } else {
       this.live.hide()
       root.style.setProperty(VAR_WALLPAPER, wallpaper.image)
-      this.still.show(wallpaper.image)
+      // Custom images can animate (GIF/APNG/WebP). Preserve their existing
+      // root-image decoder and animation timeline; cache only built-in stills.
+      if (preset !== undefined) this.still.show(wallpaper.image)
+      else this.still.hide()
     }
     root.setAttribute(ATTR_WALLPAPER, wallpaper.name)
   }

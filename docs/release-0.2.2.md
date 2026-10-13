@@ -44,15 +44,17 @@ DevTools trace（devtools.timelineとblink.user_timing）、Performanceメトリ
 
 ## diffレビュー
 
+キャッシュの対象は内蔵の静止壁紙です。カスタム画像はGIF/APNG/WebP等のアニメーションの時刻を保つため、従来のroot描画を維持します。
+
 静止壁紙は解像度やSVGを変えず、元のcover配置を専用レイヤーで再利用します。透明なgradientをrootに残してbody背景の伝播を保ち、元と同じ色で合成します。元のroot SVGを使った表示とのピクセル一致、DPR2・回転、印刷、解除、rootへの明示的背景上書きの回帰試験を追加しました。
 
 設定の正規化→Host→boot→Client→保存・更新前照合を追跡し、除外とテーマ優先順位、解除時の復元、遅延メニュー検出、環境設定とリサイズ、キャッシュ寿命を確認しました。
 
-レビュー中に壁紙一覧のmemo化による言語切替停止を検出し、localeのrevisionに対応する翻訳callbackへ修正しました。診断の手動コピー欄は更新を続け、JSON生成は通常のドラッグ中には行いません。固定版を期待していたHostテストはmanifestから版を読むよう変更し、新しい設定も更新前照合に含めました。
+レビュー中に壁紙一覧のmemo化による言語切替停止を検出し、localeのrevisionに対応する翻訳callbackへ修正しました。診断の手動コピー欄は更新を続け、JSON生成は通常のドラッグ中には行いません。旧DSHのCIで更新ボタンの矩形を別々のフレームから読む問題も検出し、同じフレーム内の一括計測と狭い幅でのborder-boxに修正しました。固定版を期待していたHostテストはmanifestから版を読むよう変更し、新しい設定も更新前照合に含めました。
 
 ## 検証と残る範囲
 
-ローカルの `npm run check`（unit 142件）、Chromium integration（57件）、実DSH 0.2.1-alpha.2／0.2.0-rc.2へのクリーンtgz導入native E2E（各14件）、保存・再読込、日英中、390px・820px、DPR2とタッチ・回転、compatとpackが成功しました。画面操作は実DSHのnative E2Eを根拠にしています。
+ローカルの `npm run check`（unit 142件）、Chromium integration（58件）、実DSH 0.2.1-alpha.2／0.2.0-rc.2へのクリーンtgz導入native E2E（各14件）、保存・再読込、日英中、390px・820px、DPR2とタッチ・回転、compatとpackが成功しました。画面操作は実DSHのnative E2Eを根拠にしています。
 
 ローカルではGitHub APIへのアクセスが制限されるため、alphaのnative試験に `GLASSUI_E2E_EXPECT_RELEASE_NETWORK_ERROR=1` を明示し、network拒否の説明と以後のwire fixtureによる更新操作を検証しました。GitHub CIではこのフラグを指定せず、live Releaseの確認を必須にしています。
 

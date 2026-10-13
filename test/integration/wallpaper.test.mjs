@@ -184,3 +184,24 @@ it('lets inline root background customizations win and resumes caching when they
     await f.close()
   }
 })
+
+it('keeps custom images in the original renderer so animated image timelines are not replaced', async () => {
+  const f = await openFixture({
+    config: {
+      wallpaper: 'custom',
+      wallpaperUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+    },
+  })
+  try {
+    assert.equal(await f.page.locator('[data-glassui-owned="static-wallpaper"]').count(), 0)
+    assert.equal(await f.page.getAttribute('html', 'data-glassui-static-wallpaper'), null)
+    assert.ok(
+      (await f.page.locator('html').evaluate(el => getComputedStyle(el).backgroundImage)).includes('data:image/gif;'),
+    )
+    await f.page.evaluate(() => window.__fixture.form.update({ tint: 93 }))
+    assert.equal(await f.page.locator('[data-glassui-owned="static-wallpaper"]').count(), 0)
+    assert.deepEqual(f.errors, [])
+  } finally {
+    await f.close()
+  }
+})

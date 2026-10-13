@@ -476,11 +476,20 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
       await page.getByRole('button', { name: '更新する', exact: true }).waitFor()
       const checkButton = page.getByRole('button', { name: '更新を確認', exact: true })
       const installButton = page.getByRole('button', { name: '更新する', exact: true })
-      const first = await checkButton.boundingBox(),
-        second = await installButton.boundingBox()
+      // Read both rectangles together; independent protocol calls may observe
+      // different frames of DSH's automatic scroll animation.
+      const [first, second] = await page.locator('.glassui-update .glassui-actions').evaluate(row => {
+        const buttons = [...row.querySelectorAll('button')]
+        return ['更新を確認', '更新する'].map(label => {
+          const button = buttons.find(element => element.textContent === label)
+          if (!button) return null
+          const rect = button.getBoundingClientRect()
+          return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+        })
+      })
       assert.ok(
         first && second && (first.y + first.height <= second.y || first.x + first.width <= second.x),
-        'update buttons do not overlap',
+        `update buttons do not overlap: ${JSON.stringify({ first, second })}`,
       )
       assert.equal(await checkButton.evaluate(element => element.scrollHeight <= element.clientHeight), true)
       await page.screenshot({ path: join(out, 'update-ja-candidate-narrow.png') })
@@ -492,6 +501,11 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
       await page.evaluate(() => window.__GLASSUI_TEST_LOCALE__.set('en'))
       assert.deepEqual(errors, [])
     } finally {
+      await page.evaluate(() => window.__GLASSUI_TEST_LOCALE__.set('en'))
+      if (!(await page.evaluate(() => window.__DSH_GLASSUI_DEBUG__.settings().enabled))) {
+        await page.getByRole('switch', { name: 'Glass material', exact: true }).click()
+        await storedEnabled(true)
+      }
       await close()
     }
   })
