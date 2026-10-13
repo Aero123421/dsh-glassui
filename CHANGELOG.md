@@ -6,6 +6,17 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-13
+
+### Fixed
+
+- Keep TypeScript 6.0.3 within typescript-eslint's supported range and Node.js 22 types aligned with the oldest supported runtime. Dependabot excludes incompatible upgrades so clean installs and release checks remain reproducible.
+- Compare the Host's reported runtime version with the package manifest in integration tests so patch releases verify the current build.
+
+### Changed
+
+- Update Playwright to 1.64.0 and React types to 19.3.0.
+
 ## [0.2.0] - 2026-10-13
 
 - Glass UI設定に独立したプラグイン更新欄を追加。英語・日本語・簡体字中国語で、確認・検証・導入・再起動待ち・結果不明を表示します。
@@ -64,7 +75,9 @@ Includes the fixes prepared for v0.1.1, whose release checks failed before publi
 
 Supports DSH `>=0.2.0-rc.2 <0.3.0`.
 
-[Unreleased]: https://github.com/Aero123421/dsh-glassui/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/Aero123421/dsh-glassui/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/Aero123421/dsh-glassui/compare/v0.1.0...v0.1.2
 [0.1.0]: https://github.com/Aero123421/dsh-glassui/releases/tag/v0.1.0
 
