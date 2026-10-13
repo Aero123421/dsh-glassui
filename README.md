@@ -27,11 +27,11 @@
 
 Requires DSH `>=0.2.0-rc.2 <0.3.0`. Tested with 0.2.0-rc.2 and 0.2.1-alpha.2.
 
-1. In DSH Web, open **Plugins → Add plugin** and enter `github:Aero123421/dsh-glassui#v0.1.1`.
+1. In DSH Web, open **Plugins → Add plugin** and enter `github:Aero123421/dsh-glassui#v0.1.2`.
 2. Or install from a terminal:
 
    ```sh
-   dsh plugin --profile web add github:Aero123421/dsh-glassui#v0.1.1
+   dsh plugin --profile web add github:Aero123421/dsh-glassui#v0.1.2
    ```
 
 3. Restart DSH if it asks you to, then reload DSH Web. The glass is on by default; **Settings → Glass UI** has the controls.

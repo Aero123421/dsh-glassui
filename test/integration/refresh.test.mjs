@@ -98,6 +98,25 @@ describe('style and viewport refreshes', () => {
       await close()
     }
   })
+
+  it('discovers menus opened after changing tint without a palette refresh', async () => {
+    const { page, errors, close } = await openFixture({ config: { refraction: false } })
+    try {
+      await page.evaluate(() => window.__fixture.form.update({ tint: 80 }))
+      await settle(page, 12)
+      await page.evaluate(() => {
+        const menu = document.createElement('div')
+        menu.id = 'late-menu'
+        menu.className = 'menu'
+        document.body.append(menu)
+      })
+      await settle(page, 12)
+      assert.equal((await surfaces(page))['late-menu']?.kind, 'menu')
+      assert.deepEqual(errors, [])
+    } finally {
+      await close()
+    }
+  })
 })
 
 async function appearance(page, ids) {
@@ -126,6 +145,9 @@ describe('opt-out appearance', () => {
           document.body.style.setProperty('--dsw-menu-surface-fill', 'rgb(40 50 60 / 0.9)')
         })
       }
+      // Finish the palette read before changing tint, so a later palette refresh
+      // cannot accidentally mask an outdated menu-filter signature.
+      await settle(page, 12)
       await page.evaluate(() => window.__fixture.form.update({ tint: 80 }))
       await settle(page, 12)
       assert.deepEqual(await appearance(page, ids), await appearance(stock.page, ids))

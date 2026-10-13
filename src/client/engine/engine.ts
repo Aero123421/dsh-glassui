@@ -263,6 +263,8 @@ export class GlassEngine {
       root.style.setProperty(VAR_TINT, String(settings.tint / 100))
       this.expected.clear()
       this.lenses.setBlur(this.blurPx())
+      // New or re-enabled menus are recognized by the blur derived from tint.
+      if (this.signatures) this.signatures.menuFilter = this.probes.menuFilter()
     }
     if (previous?.exclude !== settings.exclude) this.updateExclude(true)
     if (previous?.codeBlocks !== settings.codeBlocks) this.updateCodeBlocks()
