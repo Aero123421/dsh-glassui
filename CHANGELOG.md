@@ -6,6 +6,13 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-13
+
+- Glass UI設定に独立したプラグイン更新欄を追加。英語・日本語・簡体字中国語で、確認・検証・導入・再起動待ち・結果不明を表示します。
+- 更新前にdebounce中と進行中の設定保存を完了し、保存拒否や他画面の設定変更では導入を止めます。効果OFFでも更新欄を読めます。
+- 固定ReleaseのSemVer・DSH対応範囲・checksum・archive内manifestを検証し、標準managerにbundleのON/OFFと操作IDを渡します。GitHubとtgzの導入経路を維持します。
+- 切断と自己解除の後も操作記録を照合します。導入版と実行版が一致するまで成功と表示せず、build scriptを自動承認しません。壁紙・除外・font/theme・他pluginのstyleを維持します。
+
 ## [0.1.2] - 2026-10-13
 
 Includes the fixes prepared for v0.1.1, whose release checks failed before publication.
@@ -60,3 +67,8 @@ Supports DSH `>=0.2.0-rc.2 <0.3.0`.
 [Unreleased]: https://github.com/Aero123421/dsh-glassui/compare/v0.1.2...HEAD
 [0.1.2]: https://github.com/Aero123421/dsh-glassui/compare/v0.1.0...v0.1.2
 [0.1.0]: https://github.com/Aero123421/dsh-glassui/releases/tag/v0.1.0
+
+<!-- 0.2.0 validation: npm run check (134 unit tests), Chromium integration (45),
+DSH 0.2.1-alpha.2 native E2E (12), targeted English/Japanese/Chinese update UI,
+compat and pack passed. Hardware Windows/macOS and the unpublished v0.2.0 tag
+update remain unverified. -->

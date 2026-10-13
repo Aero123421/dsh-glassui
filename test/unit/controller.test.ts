@@ -334,3 +334,59 @@ describe('GlassController', () => {
     assert.equal(form.listenerCount, 0)
   })
 })
+
+describe('settings settlement before plugin updates', () => {
+  it('flushes a debounced slider edit without restarting the engine and locks further edits', async () => {
+    const engine = new FakeEngine(),
+      controller = new GlassController(engine),
+      form = new FakeForm()
+    controller.attach(form)
+    form.ready({ wallpaper: 'meadow', exclude: '.third-party' })
+    controller.update('tint', 72)
+    const count = engine.applied.length
+    const release = await controller.settleForUpdate()
+    assert.deepEqual(form.writes, [['tint', 72]])
+    assert.equal(controller.getSnapshot().save, 'saved')
+    assert.equal(controller.getSnapshot().updating, true)
+    controller.update('tint', 12)
+    assert.equal(controller.getSnapshot().settings.tint, 72)
+    assert.equal(engine.applied.length, count)
+    assert.equal(controller.getSnapshot().settings.exclude, '.third-party')
+    release()
+    assert.equal(controller.getSnapshot().updating, false)
+    controller.dispose()
+  })
+  it('waits for the actual in-flight save; rejected writes cannot admit an update', async () => {
+    const controller = new GlassController(new FakeEngine()),
+      form = new FakeForm()
+    controller.attach(form)
+    form.ready({})
+    let reply: ((value: boolean) => void) | undefined
+    form.respond = () =>
+      new Promise(resolve => {
+        reply = resolve
+      })
+    controller.update('tint', 82)
+    let settled = false
+    const operation = controller.settleForUpdate().then(() => {
+      settled = true
+    })
+    await settle()
+    assert.equal(settled, false)
+    reply?.(false)
+    await assert.rejects(operation, /settings/)
+    assert.equal(controller.getSnapshot().save, 'error')
+    assert.equal(controller.getSnapshot().updating, false)
+    controller.dispose()
+  })
+  it('refuses local-only unsaved settings', async () => {
+    const controller = new GlassController(new FakeEngine()),
+      form = new FakeForm()
+    controller.attach(form)
+    form.ready({}, false)
+    controller.update('wallpaper', 'sunrise')
+    await assert.rejects(controller.settleForUpdate(), /settings/)
+    assert.equal(controller.getSnapshot().settings.wallpaper, 'sunrise')
+    controller.dispose()
+  })
+})

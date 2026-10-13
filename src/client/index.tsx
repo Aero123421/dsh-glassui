@@ -7,6 +7,7 @@
  * material works even in a composition without the settings page.
  */
 import { BOOT_GLOBAL, DEFAULT_SETTINGS, ENTRY_ID, normalizeSettings, type GlassSettings } from '../shared/settings.ts'
+import { UpdateController } from './update-controller.mjs'
 import { GlassController } from './controller.ts'
 import type { ClientContext } from './dsh.ts'
 import { GlassEngine, type Diagnostics } from './engine/engine.ts'
@@ -56,6 +57,18 @@ export function apply(ctx: ClientContext): void {
   const engine = new GlassEngine(window, environment, () => link.controller?.refreshDiagnostics())
   const owner = new GlassController(engine, bootSettings())
   link.controller = owner
+  const updates = new UpdateController(
+    undefined,
+    () => owner.settleForUpdate(),
+    () => owner.getSnapshot().settings,
+  )
+  ctx.effect(() => () => updates.dispose(), 'dsh-glassui: update state')
+  ctx.inject(['connection'], child => {
+    child.effect(() => updates.attach(child.connection), 'dsh-glassui: update connection')
+    child.on?.('connection/reset', () => {
+      void updates.load()
+    })
+  })
 
   ctx.effect(() => {
     const handle = {
@@ -93,6 +106,7 @@ export function apply(ctx: ClientContext): void {
         () => (
           <SettingsPage
             controller={owner}
+            updates={updates}
             locale={locale}
             version={version}
             refractionSupported={environment.refraction}

@@ -21,17 +21,17 @@
 - **Accessible.** Honors _reduce transparency_, _increase contrast_, _reduce motion_ and Windows high-contrast mode. Code blocks become a denser glass that keeps syntax colors legible — or stay solid, if you prefer.
 - **Real refraction where the browser can do it.** In Chromium-based browsers the edges of the composer, menus and toasts bend the background like a lens. Elsewhere you get the same glass without the lens.
 - **Eleven wallpapers, four of them alive.** Ribbons and soft color fields in light and dark variants; the _Live_ ones drift slowly, redrawing the page only 12 times a second and holding still with _reduce motion_.
-- **No network, no telemetry.** Wallpapers are drawn as small inline SVGs; nothing is fetched unless you choose a custom wallpaper URL.
+- **Local wallpapers, no telemetry.** Wallpapers are small inline SVGs. The Host contacts the fixed GitHub release service only when you request an update check or install.
 
 ## Install
 
 Requires DSH `>=0.2.0-rc.2 <0.3.0`. Tested with 0.2.0-rc.2 and 0.2.1-alpha.2.
 
-1. In DSH Web, open **Plugins → Add plugin** and enter `github:Aero123421/dsh-glassui#v0.1.2`.
+1. In DSH Web, open **Plugins → Add plugin** and enter `github:Aero123421/dsh-glassui#v0.2.0`.
 2. Or install from a terminal:
 
    ```sh
-   dsh plugin --profile web add github:Aero123421/dsh-glassui#v0.1.2
+   dsh plugin --profile web add github:Aero123421/dsh-glassui#v0.2.0
    ```
 
 3. Restart DSH if it asks you to, then reload DSH Web. The glass is on by default; **Settings → Glass UI** has the controls.
@@ -63,6 +63,14 @@ The settings page also shows a short diagnostic report (surfaces found, tokens m
 ![The built-in wallpapers, light above dark](docs/images/wallpapers.png)
 
 _Live_ wallpapers move a few large layers on the compositor; nothing runs on the main thread while they play. They step a dozen times a second, which is smooth at their slow pace and lets the browser redraw the glass above them at a fifth of the display's refresh rate. With _reduce motion_ they show their first frame.
+
+## Plugin updates
+
+Settings → Glass UI shows the running version and **Check plugin update**. Checking and installing are separate actions. The updater flushes pending settings writes before installation and stops on refused saves or settings changed in another window. It keeps wallpaper, tint, exclusions and the bundle’s enabled state. Checking does not recreate the glass engine, and works with the material off.
+
+The Host checks a fixed GitHub stable release, DSH peer ranges, bounded downloads, SHA-256 and the archive’s package identity/version before delegating to DSH’s manager. GitHub installations advance to an explicit release tag; release tarballs remain tarballs in the profile’s `.dsh-glassui-updates/` directory. Custom development paths, missing managers and read-only profiles use the linked manual update. Pins are never changed to a floating latest spec; build scripts are not automatically approved.
+
+A saved operation ID reconciles a lost response without resending installation. Unknown results remain unknown. The UI confirms both installed and running versions before reporting success, and asks you to restart after current work when needed. Keep staged tarballs while the profile references them.
 
 ## For plugin authors
 

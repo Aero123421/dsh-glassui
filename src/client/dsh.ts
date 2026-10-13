@@ -3,6 +3,7 @@
  * plugin carries no build-time dependency on DSH packages. Each service is
  * optional: the plugin degrades gracefully when a composition lacks it.
  */
+import type { UpdateConnection } from './update-controller.mjs'
 import type { SettingsForm } from './controller.ts'
 
 /** `ctx.slots`: the slot registry. */
@@ -34,6 +35,8 @@ export interface ClientContext {
   effect(setup: () => () => void, label?: string): void
   /** Run `callback` in a child context once every named service is available. */
   inject(services: readonly string[], callback: (ctx: ClientContext) => void): void
+  connection: UpdateConnection
+  on?(event: 'connection/reset', callback: () => void): () => void
   slots: Slots
   locale: Locale
   configForms: ConfigForms
