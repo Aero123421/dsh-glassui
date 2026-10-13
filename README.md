@@ -27,11 +27,11 @@
 
 Requires DSH `>=0.2.0-rc.2 <0.3.0`. Tested with 0.2.0-rc.2 and 0.2.1-alpha.2.
 
-1. In DSH Web, open **Plugins → Add plugin** and enter `github:Aero123421/dsh-glassui#v0.2.1`.
+1. In DSH Web, open **Plugins → Add plugin** and enter `github:Aero123421/dsh-glassui#v0.2.2`.
 2. Or install from a terminal:
 
    ```sh
-   dsh plugin --profile web add github:Aero123421/dsh-glassui#v0.2.1
+   dsh plugin --profile web add github:Aero123421/dsh-glassui#v0.2.2
    ```
 
 3. Restart DSH if it asks you to, then reload DSH Web. The glass is on by default; **Settings → Glass UI** has the controls.
@@ -52,6 +52,7 @@ All settings apply live and are stored in your DSH profile, so they are also ava
 | Custom wallpaper URL       | —         | An `http://` or `https://` URL, a path on the DSH server, or a base64 image `data:` URL.                                                                                                                                                     |
 | Sidebar                    | Floating  | _Floating_ insets the sidebar as a rounded pane; _Docked_ keeps DSH's layout.                                                                                                                                                                |
 | Code blocks                | Glass     | _Glass_ is a denser tint that keeps code easy to read; _Solid_ keeps DSH's opaque code blocks.                                                                                                                                               |
+| Inline-code opacity        | 72        | Independent background opacity (0–100) with a live text preview; 60–85 is recommended. Contrast preferences can raise the effective opacity.                                                                                                 |
 | Refraction                 | on        | Lens refraction along glass edges (Chromium-based browsers).                                                                                                                                                                                 |
 | Pointer highlights         | on        | A soft light that follows the mouse across glass. Off on touch screens and with _reduce motion_.                                                                                                                                             |
 | Leave these elements alone | —         | CSS selectors of elements the plugin must not style, e.g. `.my-plugin-panel`.                                                                                                                                                                |

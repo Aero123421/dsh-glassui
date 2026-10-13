@@ -25,6 +25,7 @@ import {
   ATTR_SURFACE,
   FOOTPRINT_SELECTOR,
   SURFACE_KINDS,
+  VAR_INLINE_OPACITY,
   VAR_TINT,
   type SurfaceKind,
 } from '../../shared/dom.ts'
@@ -184,6 +185,7 @@ export class GlassEngine {
   private readonly wallpaper: Wallpaper
   private ownSheet: HTMLStyleElement | undefined
 
+  private menuFilterDirty = false
   private signatures: Signatures | undefined
   private readonly expected = new Map<string, string>()
   private missing: FillKey[] = []
@@ -230,7 +232,10 @@ export class GlassEngine {
     this.wallpaper = new Wallpaper(this.doc)
     // Preferences must remain observable while high contrast suspends rendering.
     this.stopEnvironment = this.env.onChange(() => {
-      if (this.settings) this.apply(this.settings)
+      if (this.settings) {
+        this.apply(this.settings)
+        this.applyPresentation()
+      }
       this.paletteChanged()
     })
   }
@@ -258,17 +263,29 @@ export class GlassEngine {
       return
     }
     const root = this.doc.documentElement
-    root.setAttribute(ATTR_SIDEBAR, settings.sidebar)
+    if (previous?.sidebar !== settings.sidebar) root.setAttribute(ATTR_SIDEBAR, settings.sidebar)
+    if (previous?.inlineCodeOpacity !== settings.inlineCodeOpacity)
+      root.style.setProperty(VAR_INLINE_OPACITY, String(settings.inlineCodeOpacity / 100))
     if (previous?.tint !== settings.tint) {
       root.style.setProperty(VAR_TINT, String(settings.tint / 100))
       this.expected.clear()
       this.lenses.setBlur(this.blurPx())
       // New or re-enabled menus are recognized by the blur derived from tint.
-      if (this.signatures) this.signatures.menuFilter = this.probes.menuFilter()
+      this.menuFilterDirty = true
     }
     if (previous?.exclude !== settings.exclude) this.updateExclude(true)
     if (previous?.codeBlocks !== settings.codeBlocks) this.updateCodeBlocks()
-    this.applyPresentation()
+    // Density only changes fills and blur; it cannot change the lens geometry,
+    // wallpaper or highlight eligibility. Keep every input synchronous without
+    // forcing a layout read for unchanged presentation.
+    if (
+      previous?.sidebar !== settings.sidebar ||
+      previous.refraction !== settings.refraction ||
+      previous.highlights !== settings.highlights ||
+      previous.wallpaper !== settings.wallpaper ||
+      previous.wallpaperUrl !== settings.wallpaperUrl
+    )
+      this.applyPresentation()
   }
 
   private start(): void {
@@ -282,6 +299,7 @@ export class GlassEngine {
     root.setAttribute(ATTR_ROOT, 'on')
     root.setAttribute(ATTR_SIDEBAR, settings.sidebar)
     root.style.setProperty(VAR_TINT, String(settings.tint / 100))
+    root.style.setProperty(VAR_INLINE_OPACITY, String(settings.inlineCodeOpacity / 100))
     this.lenses.setBlur(this.blurPx())
     this.updateExclude(false)
     this.refreshExclusions()
@@ -361,6 +379,7 @@ export class GlassEngine {
     root.removeAttribute(ATTR_ROOT)
     root.removeAttribute(ATTR_SIDEBAR)
     root.style.removeProperty(VAR_TINT)
+    root.style.removeProperty(VAR_INLINE_OPACITY)
     // Sweep: also clears marks on elements that were detached while tagged and later re-attached.
     for (const element of this.doc.querySelectorAll(FOOTPRINT_SELECTOR)) {
       if (element.hasAttribute(ATTR_OWNED)) {
@@ -548,6 +567,7 @@ export class GlassEngine {
       if (keys.length === 1 && only !== undefined && !reservedColors.has(value)) fills.set(value, only)
       else this.ambiguous.push(...keys)
     }
+    this.menuFilterDirty = false
     this.signatures = { fills, elevation: this.probes.elevation(), menuFilter: this.probes.menuFilter() }
     this.expected.clear()
   }
@@ -602,17 +622,28 @@ export class GlassEngine {
       if (record.removedNodes.length > 0) removed = true
     }
     if (removed) this.prune()
-    this.schedule()
+    if (this.exclusionsDirty || this.roots.size > 0 || this.singles.size > 0) this.schedule()
+  }
+
+  private oldStyle: CSSStyleDeclaration | undefined
+  private newStyle: CSSStyleDeclaration | undefined
+
+  private docStyle(): CSSStyleDeclaration {
+    return this.win.document.createElement('div').style
   }
 
   private onlyOwnStyleChanged(record: MutationRecord): boolean {
-    const plain = (text: string): string => {
-      const style = this.doc.createElement('div').style
+    this.oldStyle ??= this.docStyle()
+    this.newStyle ??= this.docStyle()
+    const plain = (text: string, style: CSSStyleDeclaration): string => {
       style.cssText = text
       for (const name of [...style]) if (name.startsWith('--glassui-')) style.removeProperty(name)
       return style.cssText
     }
-    return plain(record.oldValue ?? '') === plain((record.target as Element).getAttribute('style') ?? '')
+    return (
+      plain(record.oldValue ?? '', this.oldStyle) ===
+      plain((record.target as Element).getAttribute('style') ?? '', this.newStyle)
+    )
   }
 
   /**
@@ -772,6 +803,10 @@ export class GlassEngine {
     }
     const background = style.backgroundColor
     const backdropFilter = style.backdropFilter
+    if (this.menuFilterDirty && backdropFilter !== 'none' && !signatures.fills.has(background)) {
+      signatures.menuFilter = this.probes.menuFilter()
+      this.menuFilterDirty = false
+    }
     if (!signatures.fills.has(background) && (backdropFilter === 'none' || backdropFilter !== signatures.menuFilter)) {
       return {
         element,

@@ -1,4 +1,4 @@
-/*! dsh-glassui 0.2.1 | MIT License | https://github.com/Aero123421/dsh-glassui#readme */
+/*! dsh-glassui 0.2.2 | MIT License | https://github.com/Aero123421/dsh-glassui#readme */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -2056,6 +2056,7 @@ var DEFAULT_SETTINGS = Object.freeze({
   wallpaperUrl: "",
   sidebar: "floating",
   codeBlocks: "glass",
+  inlineCodeOpacity: 72,
   refraction: true,
   highlights: true,
   exclude: ""
@@ -2096,6 +2097,7 @@ function normalizeSettings(input) {
     wallpaperUrl: text(source.wallpaperUrl, MAX_WALLPAPER_URL_LENGTH, d2.wallpaperUrl),
     sidebar: oneOf(SIDEBAR_STYLES, source.sidebar, d2.sidebar),
     codeBlocks: oneOf(CODE_BLOCK_STYLES, source.codeBlocks, d2.codeBlocks),
+    inlineCodeOpacity: typeof source.inlineCodeOpacity === "number" && Number.isFinite(source.inlineCodeOpacity) ? Math.min(100, Math.max(0, Math.round(source.inlineCodeOpacity))) : d2.inlineCodeOpacity,
     refraction: bool(source.refraction, d2.refraction),
     highlights: bool(source.highlights, d2.highlights),
     exclude: text(source.exclude, MAX_EXCLUDE_LENGTH, d2.exclude)
@@ -2650,6 +2652,7 @@ function applyUpdateRoutes(ctx, readSettings2, version) {
 var ATTR_ROOT = "data-glassui";
 var ATTR_SIDEBAR = "data-glassui-sidebar";
 var ATTR_WALLPAPER = "data-glassui-wallpaper";
+var ATTR_STATIC_WALLPAPER = "data-glassui-static-wallpaper";
 var ATTR_HIGHLIGHTS = "data-glassui-highlights";
 var ATTR_RAW = "data-glassui-raw";
 var ATTR_SURFACE = "data-glassui-surface";
@@ -2663,6 +2666,7 @@ var ATTR_EXCLUDED = "data-glassui-excluded";
 var ATTR_MATERIAL = "data-glassui-material";
 var ATTR_OWNED = "data-glassui-owned";
 var VAR_TINT = "--glassui-t";
+var VAR_INLINE_OPACITY = "--glassui-inline-opacity";
 var VAR_WALLPAPER = "--glassui-wallpaper";
 var VAR_POINTER_X = "--glassui-lx";
 var VAR_POINTER_Y = "--glassui-ly";
@@ -2670,6 +2674,7 @@ var FOOTPRINT_SELECTOR = [
   ATTR_ROOT,
   ATTR_SIDEBAR,
   ATTR_WALLPAPER,
+  ATTR_STATIC_WALLPAPER,
   ATTR_HIGHLIGHTS,
   ATTR_RAW,
   ATTR_SURFACE,
@@ -2700,8 +2705,9 @@ var FILL_TOKENS = {
   codeBanner: "--dsw-alias-markdown-code-block-banner"
 };
 var FILL_KEYS = Object.keys(FILL_TOKENS);
+var INLINE_CODE_TOKEN = "--dsw-alias-markdown-inline-code";
 var RESERVED_TOKENS = [
-  "--dsw-alias-markdown-inline-code",
+  INLINE_CODE_TOKEN,
   "--dsw-alias-markdown-citation",
   "--dsw-alias-markdown-tag",
   "--dsw-alias-markdown-placeholder",
@@ -3266,6 +3272,7 @@ ${body}
 }
 var ROOT_PARAMETERS = {
   [VAR_TINT]: 0.35,
+  [VAR_INLINE_OPACITY]: 0.72,
   "--glassui-floor": 0,
   "--glassui-tt": `max(var(${VAR_TINT}), var(--glassui-floor))`,
   "--glassui-blur": "calc(6px + var(--glassui-tt) * 22px)",
@@ -3291,6 +3298,7 @@ var LIGHT = {
   "--glassui-sheen": 0.2,
   "--glassui-light-a": 0.3,
   "--glassui-pane-rim": paneRim(0.95, 0.5, 0.1),
+  [INLINE_CODE_TOKEN]: `rgb(245 246 248 / max(var(${VAR_INLINE_OPACITY}), var(--glassui-floor)))`,
   [MENU_TOKENS.fill]: "rgb(250 250 252 / calc(0.5 + var(--glassui-tt) * 0.42))",
   [MENU_TOKENS.overlayFill]: "rgb(250 250 252 / calc(0.86 + var(--glassui-tt) * 0.12))",
   [MENU_TOKENS.groupHeader]: "rgb(250 250 252 / calc(0.8 + var(--glassui-tt) * 0.18))"
@@ -3306,6 +3314,7 @@ var DARK = {
   "--glassui-sheen": 0.07,
   "--glassui-light-a": 0.16,
   "--glassui-pane-rim": paneRim(0.4, 0.18, 0.5),
+  [INLINE_CODE_TOKEN]: `rgb(48 48 54 / max(var(${VAR_INLINE_OPACITY}), var(--glassui-floor)))`,
   [MENU_TOKENS.fill]: "rgb(44 44 48 / calc(0.46 + var(--glassui-tt) * 0.44))",
   [MENU_TOKENS.overlayFill]: "rgb(44 44 48 / calc(0.86 + var(--glassui-tt) * 0.12))",
   [MENU_TOKENS.groupHeader]: "rgb(44 44 48 / calc(0.8 + var(--glassui-tt) * 0.18))"
@@ -3440,6 +3449,23 @@ function wallpaperRules() {
     rule(`${ROOT2}[${ATTR_WALLPAPER}]`, {
       background: `var(${VAR_WALLPAPER}) center / cover no-repeat fixed`
     }),
+    // A transparent image keeps body-background propagation identical to the
+    // boot/root wallpaper. `background-image: none` would move the body tint
+    // underneath the cached wallpaper and visibly change every color.
+    rule(`${ROOT2}[${ATTR_WALLPAPER}][${ATTR_STATIC_WALLPAPER}]`, {
+      "background-image": "linear-gradient(transparent, transparent)"
+    }),
+    rule(`${ROOT2}[${ATTR_STATIC_WALLPAPER}] > [${ATTR_OWNED}="static-wallpaper"]`, {
+      position: "fixed",
+      inset: 0,
+      "z-index": -1,
+      "pointer-events": "none",
+      contain: "strict",
+      transform: "translateZ(0)",
+      "background-position": "center",
+      "background-size": "cover",
+      "background-repeat": "no-repeat"
+    }),
     rule(`${ROOT2}[${ATTR_WALLPAPER}] body${INCLUDED}`, {
       "background-color": "color-mix(in srgb, var(--dsw-alias-bg-base) calc(var(--glassui-canvas-a) * 100%), transparent)"
     })
@@ -3527,6 +3553,7 @@ function bootScript(settings) {
     `    root.setAttribute(${scriptJson(ATTR_ROOT)}, 'on')`,
     `    root.setAttribute(${scriptJson(ATTR_SIDEBAR)}, ${scriptJson(settings.sidebar)})`,
     `    root.style.setProperty(${scriptJson(VAR_TINT)}, ${scriptJson(String(settings.tint / 100))})`,
+    `    root.style.setProperty(${scriptJson(VAR_INLINE_OPACITY)}, ${scriptJson(String(settings.inlineCodeOpacity / 100))})`,
     `    var wallpaper = ${scriptJson(wallpaper ?? null)}`,
     `    if (!wallpaper || (wallpaper.skipOnDarwin && root.getAttribute(${scriptJson(PLATFORM_ATTRIBUTE)}) === 'darwin')) return`,
     `    var dark = !!document.body && document.body.hasAttribute(${scriptJson(DARK_ATTRIBUTE)})`,
@@ -3560,6 +3587,7 @@ var Config = z.object({
   ).volatile(),
   sidebar: z.union(SIDEBAR_STYLES).default(d.sidebar).description("Float the sidebar as an inset pane, or keep it docked.").volatile(),
   codeBlocks: z.union(CODE_BLOCK_STYLES).default(d.codeBlocks).description("Show code blocks as a denser glass, or keep them solid.").volatile(),
+  inlineCodeOpacity: z.natural().max(100).default(d.inlineCodeOpacity).description("Inline-code background opacity, independent of glass density (0\u2013100).").volatile(),
   refraction: z.boolean().default(d.refraction).description("Bend the background along glass edges (Chromium-based browsers only).").volatile(),
   highlights: z.boolean().default(d.highlights).description("A soft highlight that follows the pointer.").volatile(),
   exclude: z.string().max(MAX_EXCLUDE_LENGTH).default(d.exclude).description("CSS selectors of elements the plugin must leave untouched, comma separated.").volatile()
@@ -3572,15 +3600,16 @@ function readSettings(config) {
     wallpaperUrl: config.wallpaperUrl.get(),
     sidebar: config.sidebar.get(),
     codeBlocks: config.codeBlocks.get(),
+    inlineCodeOpacity: config.inlineCodeOpacity.get(),
     refraction: config.refraction.get(),
     highlights: config.highlights.get(),
     exclude: config.exclude.get()
   });
 }
 function apply(ctx, config) {
-  applyUpdateRoutes(ctx, () => readSettings(config), "0.2.1");
+  applyUpdateRoutes(ctx, () => readSettings(config), "0.2.2");
   ctx.on("webserver/index-inject", (table) => {
-    table.push(...bootRows(readSettings(config), "0.2.1"));
+    table.push(...bootRows(readSettings(config), "0.2.2"));
   });
 }
 export {

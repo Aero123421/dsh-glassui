@@ -145,7 +145,7 @@ function renderRows(rows, placement) {
 const HARNESS = `
 window.__fixture = (() => {
   const modules = {
-    react: { useSyncExternalStore() {}, useState() { return [] }, useEffect() {}, useMemo(fn) { return fn() }, useRef() { return {} }, useCallback(fn) { return fn }, useId() { return 'id' } },
+    react: { memo(component) { return component }, useSyncExternalStore() {}, useState() { return [] }, useEffect() {}, useMemo(fn) { return fn() }, useRef() { return {} }, useCallback(fn) { return fn }, useId() { return 'id' } },
     'react/jsx-runtime': { jsx() { return null }, jsxs() { return null }, Fragment: 'fragment' },
     'react-dom': {},
   }
@@ -227,7 +227,8 @@ export async function openFixture(options = {}) {
   const context = await (
     await browser()
   ).newContext({
-    viewport: { width: 1440, height: 900 },
+    viewport: options.viewport ?? { width: 1440, height: 900 },
+    deviceScaleFactor: options.deviceScaleFactor ?? 1,
     colorScheme: options.dark ? 'dark' : 'light',
     reducedMotion: options.reducedMotion ? 'reduce' : 'no-preference',
   })

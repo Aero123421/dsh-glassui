@@ -4,7 +4,7 @@
  * that image and adds its moving layers in one element of the plugin's own,
  * painted between the page background and DSH (see {@link LiveLayers}).
  */
-import { ATTR_OWNED, ATTR_WALLPAPER, VAR_WALLPAPER } from '../../shared/dom.ts'
+import { ATTR_OWNED, ATTR_STATIC_WALLPAPER, ATTR_WALLPAPER, VAR_WALLPAPER } from '../../shared/dom.ts'
 import { isSafeWallpaperUrl, type GlassSettings, type WallpaperPreset } from '../../shared/settings.ts'
 import {
   OVERSCAN,
@@ -154,10 +154,77 @@ class LiveLayers {
   }
 }
 
+/** A still SVG/image kept at its full native cover geometry in a composited layer. */
+class StillLayer {
+  private readonly doc: Document
+  private element: HTMLDivElement | undefined
+  private image = ''
+  private appliedImage = ''
+  private observer: MutationObserver | undefined
+
+  constructor(doc: Document) {
+    this.doc = doc
+  }
+
+  show(image: string): void {
+    this.image = image
+    const view = this.doc.defaultView
+    if (!this.observer && view) {
+      this.observer = new view.MutationObserver(() => this.sync())
+      this.observer.observe(this.doc.documentElement, { attributes: true, attributeFilter: ['style'] })
+    }
+    this.sync()
+  }
+
+  private sync(): void {
+    const root = this.doc.documentElement
+    // Explicit root background customization keeps its original CSS cascade.
+    // Checking declarations never forces computed style/layout on a density edit.
+    const overridden = [
+      'background-image',
+      'background-color',
+      'background-size',
+      'background-position',
+      'background-repeat',
+      'background-attachment',
+    ].some(name => root.style.getPropertyValue(name) !== '')
+    if (overridden) {
+      this.element?.remove()
+      this.element = undefined
+      this.appliedImage = ''
+      root.removeAttribute(ATTR_STATIC_WALLPAPER)
+      return
+    }
+    if (!this.element?.isConnected) {
+      this.element = this.doc.createElement('div')
+      this.element.setAttribute(ATTR_OWNED, 'static-wallpaper')
+      this.element.setAttribute('aria-hidden', 'true')
+      root.insertBefore(this.element, this.doc.body)
+      this.appliedImage = ''
+    }
+    if (this.image !== this.appliedImage) {
+      this.element.style.backgroundImage = this.image
+      this.appliedImage = this.image
+    }
+    if (!root.hasAttribute(ATTR_STATIC_WALLPAPER)) root.setAttribute(ATTR_STATIC_WALLPAPER, '')
+  }
+
+  hide(): void {
+    this.observer?.disconnect()
+    this.observer = undefined
+    this.element?.remove()
+    this.element = undefined
+    this.image = ''
+    this.appliedImage = ''
+    this.doc.documentElement.removeAttribute(ATTR_STATIC_WALLPAPER)
+  }
+}
+
 /** Publishes the wallpaper on `<html>`; caches generated images. */
 export class Wallpaper {
   private readonly doc: Document
   private readonly live: LiveLayers
+  private readonly still: StillLayer
   private readonly cache = new Map<string, ResolvedWallpaper | undefined>()
   private readonly layerCache = new Map<
     string,
@@ -168,6 +235,7 @@ export class Wallpaper {
   constructor(doc: Document) {
     this.doc = doc
     this.live = new LiveLayers(doc)
+    this.still = new StillLayer(doc)
   }
 
   /**
@@ -181,23 +249,35 @@ export class Wallpaper {
     const key = `${settings.wallpaper}|${settings.wallpaperUrl}|${scheme}|${darwinDesktop}|${motion}`
     if (key === this.current) return
     this.current = key
-    if (!this.cache.has(key)) this.cache.set(key, resolveWallpaper(settings, scheme, darwinDesktop))
+    if (!this.cache.has(key)) {
+      this.cache.set(key, resolveWallpaper(settings, scheme, darwinDesktop))
+      if (this.cache.size > 24) {
+        const oldest = this.cache.keys().next().value
+        if (oldest !== undefined) this.cache.delete(oldest)
+      }
+    }
     const wallpaper = this.cache.get(key)
     const root = this.doc.documentElement
     if (!wallpaper) {
       this.live.hide()
+      this.still.hide()
       root.removeAttribute(ATTR_WALLPAPER)
       root.style.removeProperty(VAR_WALLPAPER)
       return
     }
     const preset = wallpaper.preset
     if (motion && preset !== undefined && isAnimated(preset)) {
+      this.still.hide()
       const layers = this.layers(preset, scheme)
       root.style.setProperty(VAR_WALLPAPER, layers.base)
       this.live.show(preset, layers.moving)
     } else {
       this.live.hide()
       root.style.setProperty(VAR_WALLPAPER, wallpaper.image)
+      // Custom images can animate (GIF/APNG/WebP). Preserve their existing
+      // root-image decoder and animation timeline; cache only built-in stills.
+      if (preset !== undefined) this.still.show(wallpaper.image)
+      else this.still.hide()
     }
     root.setAttribute(ATTR_WALLPAPER, wallpaper.name)
   }
@@ -222,9 +302,12 @@ export class Wallpaper {
   /** Remove the wallpaper. */
   dispose(): void {
     this.live.hide()
+    this.still.hide()
     const root = this.doc.documentElement
     root.removeAttribute(ATTR_WALLPAPER)
     root.style.removeProperty(VAR_WALLPAPER)
     this.current = undefined
+    this.cache.clear()
+    this.layerCache.clear()
   }
 }

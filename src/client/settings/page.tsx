@@ -5,6 +5,8 @@
  * to glass with the rest of the app.
  */
 import {
+  memo,
+  useCallback,
   useEffect,
   useId,
   useState,
@@ -54,8 +56,8 @@ function useController(controller: GlassController): ControllerState {
 }
 
 function useTranslate(locale: LocaleSource): Translate {
-  useSyncExternalStore(locale.subscribe, locale.revision)
-  return locale.translate
+  const revision = useSyncExternalStore(locale.subscribe, locale.revision)
+  return useCallback((key, params) => locale.translate(key, params), [locale, revision])
 }
 
 function useScheme(): Scheme {
@@ -214,7 +216,7 @@ function preset(choice: WallpaperChoice): WallpaperPreset | undefined {
   return choice
 }
 
-function WallpaperPicker(props: {
+const WallpaperPicker = memo(function WallpaperPicker(props: {
   value: WallpaperChoice
   scheme: Scheme
   t: Translate
@@ -263,22 +265,23 @@ function WallpaperPicker(props: {
       })}
     </div>
   )
-}
+})
 
 function Diagnostics(props: { state: ControllerState; t: Translate; version: string }) {
   const { state, t } = props
   const { diagnostics } = state
   const [copied, setCopied] = useState<'idle' | 'done' | 'failed'>('idle')
-  const report = JSON.stringify(
-    {
-      version: props.version,
-      settings: { ...state.settings, wallpaperUrl: state.settings.wallpaperUrl ? '[configured]' : '' },
-      diagnostics,
-      userAgent: navigator.userAgent,
-    },
-    null,
-    2,
-  )
+  const makeReport = (): string =>
+    JSON.stringify(
+      {
+        version: props.version,
+        settings: { ...state.settings, wallpaperUrl: state.settings.wallpaperUrl ? '[configured]' : '' },
+        diagnostics,
+        userAgent: navigator.userAgent,
+      },
+      null,
+      2,
+    )
   const surfaces = SURFACE_KINDS.filter(kind => diagnostics.surfaces[kind] > 0)
     .map(kind => `${t(`kind.${kind}`)} ${diagnostics.surfaces[kind]}`)
     .join(' · ')
@@ -296,8 +299,9 @@ function Diagnostics(props: { state: ControllerState; t: Translate; version: str
           .filter(Boolean)
           .join(' ')
   const copy = async (): Promise<void> => {
+    const text = makeReport()
     try {
-      await navigator.clipboard.writeText(report)
+      await navigator.clipboard.writeText(text)
       setCopied('done')
     } catch {
       setCopied('failed')
@@ -328,7 +332,7 @@ function Diagnostics(props: { state: ControllerState; t: Translate; version: str
       {copied === 'failed' ? (
         <>
           <p className="glassui-note">{t('diag.copy.failed')}</p>
-          <textarea className="glassui-report" readOnly value={report} aria-label={t('diag.title')} />
+          <textarea className="glassui-report" readOnly value={makeReport()} aria-label={t('diag.title')} />
         </>
       ) : null}
     </div>
@@ -445,6 +449,10 @@ export function SettingsPage(props: SettingsPageProps) {
   const update = useSyncExternalStore(props.updates.subscribe, props.updates.getSnapshot)
   const t = useTranslate(props.locale)
   const scheme = useScheme()
+  const setWallpaper = useCallback(
+    (value: WallpaperChoice) => props.controller.update('wallpaper', value),
+    [props.controller],
+  )
   const id = useId()
   const { settings, diagnostics } = state
   const set = <K extends keyof GlassSettings>(field: K, value: GlassSettings[K]): void =>
@@ -533,12 +541,7 @@ export function SettingsPage(props: SettingsPageProps) {
             {t('section.wallpaper')}
           </h3>
           <div className="glassui-card">
-            <WallpaperPicker
-              value={settings.wallpaper}
-              scheme={scheme}
-              t={t}
-              onChange={value => set('wallpaper', value)}
-            />
+            <WallpaperPicker value={settings.wallpaper} scheme={scheme} t={t} onChange={setWallpaper} />
             {settings.wallpaper === 'auto' ? <p className="glassui-note">{t('wallpaper.auto.hint')}</p> : null}
             {settings.wallpaper !== 'auto' && isAnimated(preset(settings.wallpaper) ?? 'bay') ? (
               <p className="glassui-note">{t('wallpaper.live.hint')}</p>
@@ -586,6 +589,40 @@ export function SettingsPage(props: SettingsPageProps) {
                 onChange={value => set('codeBlocks', value)}
               />
             </Row>
+            <div className="glassui-inline-settings">
+              <div className="glassui-slider">
+                <div className="glassui-slider__head">
+                  <label className="glassui-row__label" htmlFor={`${id}-inline-opacity`}>
+                    {t('inline.label')}
+                  </label>
+                  <span className="glassui-slider__value">{settings.inlineCodeOpacity}</span>
+                </div>
+                <input
+                  id={`${id}-inline-opacity`}
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={settings.inlineCodeOpacity}
+                  className="glassui-range"
+                  aria-describedby={`${id}-inline-hint`}
+                  style={{ '--glassui-progress': `${settings.inlineCodeOpacity}%` } as CSSProperties}
+                  onChange={event => set('inlineCodeOpacity', Number(event.target.value))}
+                />
+                <div className="glassui-slider__ends" aria-hidden="true">
+                  <span>{t('tint.clear')}</span>
+                  <span>{t('inline.readable')}</span>
+                </div>
+              </div>
+              <p className="glassui-note" id={`${id}-inline-hint`}>
+                {t('inline.hint')}
+              </p>
+              <div className="glassui-inline-preview" aria-label={t('inline.preview')}>
+                <p>
+                  {t('inline.example')} <code>grep</code> · <code>path</code> · <code>@deepseek-ai/dsh</code>
+                </p>
+              </div>
+            </div>
             <Row
               label={t('refraction.label')}
               hint={props.refractionSupported ? t('refraction.hint') : t('refraction.unavailable')}

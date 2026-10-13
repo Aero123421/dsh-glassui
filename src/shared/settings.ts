@@ -56,6 +56,8 @@ export interface GlassSettings {
   sidebar: SidebarStyle
   /** Code block presentation. */
   codeBlocks: CodeBlockStyle
+  /** Independent inline-code background opacity, 0–100. */
+  inlineCodeOpacity: number
   /** Lens refraction along glass edges where the browser supports it (Chromium). */
   refraction: boolean
   /** A soft highlight that follows the pointer on devices with a fine pointer. */
@@ -72,6 +74,7 @@ export const DEFAULT_SETTINGS: Readonly<GlassSettings> = Object.freeze({
   wallpaperUrl: '',
   sidebar: 'floating',
   codeBlocks: 'glass',
+  inlineCodeOpacity: 72,
   refraction: true,
   highlights: true,
   exclude: '',
@@ -138,6 +141,10 @@ export function normalizeSettings(input: unknown): GlassSettings {
     wallpaperUrl: text(source.wallpaperUrl, MAX_WALLPAPER_URL_LENGTH, d.wallpaperUrl),
     sidebar: oneOf(SIDEBAR_STYLES, source.sidebar, d.sidebar),
     codeBlocks: oneOf(CODE_BLOCK_STYLES, source.codeBlocks, d.codeBlocks),
+    inlineCodeOpacity:
+      typeof source.inlineCodeOpacity === 'number' && Number.isFinite(source.inlineCodeOpacity)
+        ? Math.min(100, Math.max(0, Math.round(source.inlineCodeOpacity)))
+        : d.inlineCodeOpacity,
     refraction: bool(source.refraction, d.refraction),
     highlights: bool(source.highlights, d.highlights),
     exclude: text(source.exclude, MAX_EXCLUDE_LENGTH, d.exclude),

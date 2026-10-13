@@ -50,11 +50,18 @@ export class Highlights {
     for (let node = this.target?.closest(LIT_SELECTOR); node; node = node.parentElement?.closest(LIT_SELECTOR)) {
       if (node instanceof HTMLElement) next.add(node)
     }
-    for (const element of this.lit) if (!next.has(element)) this.clear(element)
-    for (const element of next) {
+    const positions = [...next].map(element => {
       const rect = element.getBoundingClientRect()
-      element.style.setProperty(VAR_POINTER_X, `${Math.round(this.x - rect.left - element.clientLeft)}px`)
-      element.style.setProperty(VAR_POINTER_Y, `${Math.round(this.y - rect.top - element.clientTop)}px`)
+      return {
+        element,
+        x: `${Math.round(this.x - rect.left - element.clientLeft)}px`,
+        y: `${Math.round(this.y - rect.top - element.clientTop)}px`,
+      }
+    })
+    for (const element of this.lit) if (!next.has(element)) this.clear(element)
+    for (const { element, x, y } of positions) {
+      if (element.style.getPropertyValue(VAR_POINTER_X) !== x) element.style.setProperty(VAR_POINTER_X, x)
+      if (element.style.getPropertyValue(VAR_POINTER_Y) !== y) element.style.setProperty(VAR_POINTER_Y, y)
     }
     this.lit.clear()
     for (const element of next) this.lit.add(element)

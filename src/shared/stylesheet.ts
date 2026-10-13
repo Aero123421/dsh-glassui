@@ -31,6 +31,9 @@ import {
   ATTR_SIDEBAR,
   ATTR_SURFACE,
   ATTR_WALLPAPER,
+  ATTR_STATIC_WALLPAPER,
+  ATTR_OWNED,
+  VAR_INLINE_OPACITY,
   VAR_POINTER_X,
   VAR_POINTER_Y,
   VAR_TINT,
@@ -44,6 +47,7 @@ import {
   FILL_KEYS,
   FILL_TOKENS,
   MENU_TOKENS,
+  INLINE_CODE_TOKEN,
   type FillKey,
 } from './tokens.ts'
 import { svgDataUrl } from './wallpapers.ts'
@@ -98,6 +102,7 @@ function rule(selector: string, declarations: Declarations): string {
 /** Parameters derived from the tint, shared by both palettes. */
 const ROOT_PARAMETERS: Declarations = {
   [VAR_TINT]: 0.35,
+  [VAR_INLINE_OPACITY]: 0.72,
   '--glassui-floor': 0,
   '--glassui-tt': `max(var(${VAR_TINT}), var(--glassui-floor))`,
   '--glassui-blur': 'calc(6px + var(--glassui-tt) * 22px)',
@@ -125,6 +130,7 @@ const LIGHT: Declarations = {
   '--glassui-sheen': 0.2,
   '--glassui-light-a': 0.3,
   '--glassui-pane-rim': paneRim(0.95, 0.5, 0.1),
+  [INLINE_CODE_TOKEN]: `rgb(245 246 248 / max(var(${VAR_INLINE_OPACITY}), var(--glassui-floor)))`,
   [MENU_TOKENS.fill]: 'rgb(250 250 252 / calc(0.5 + var(--glassui-tt) * 0.42))',
   [MENU_TOKENS.overlayFill]: 'rgb(250 250 252 / calc(0.86 + var(--glassui-tt) * 0.12))',
   [MENU_TOKENS.groupHeader]: 'rgb(250 250 252 / calc(0.8 + var(--glassui-tt) * 0.18))',
@@ -142,6 +148,7 @@ const DARK: Declarations = {
   '--glassui-sheen': 0.07,
   '--glassui-light-a': 0.16,
   '--glassui-pane-rim': paneRim(0.4, 0.18, 0.5),
+  [INLINE_CODE_TOKEN]: `rgb(48 48 54 / max(var(${VAR_INLINE_OPACITY}), var(--glassui-floor)))`,
   [MENU_TOKENS.fill]: 'rgb(44 44 48 / calc(0.46 + var(--glassui-tt) * 0.44))',
   [MENU_TOKENS.overlayFill]: 'rgb(44 44 48 / calc(0.86 + var(--glassui-tt) * 0.12))',
   [MENU_TOKENS.groupHeader]: 'rgb(44 44 48 / calc(0.8 + var(--glassui-tt) * 0.18))',
@@ -299,6 +306,23 @@ function wallpaperRules(): string[] {
   return [
     rule(`${ROOT}[${ATTR_WALLPAPER}]`, {
       background: `var(${VAR_WALLPAPER}) center / cover no-repeat fixed`,
+    }),
+    // A transparent image keeps body-background propagation identical to the
+    // boot/root wallpaper. `background-image: none` would move the body tint
+    // underneath the cached wallpaper and visibly change every color.
+    rule(`${ROOT}[${ATTR_WALLPAPER}][${ATTR_STATIC_WALLPAPER}]`, {
+      'background-image': 'linear-gradient(transparent, transparent)',
+    }),
+    rule(`${ROOT}[${ATTR_STATIC_WALLPAPER}] > [${ATTR_OWNED}="static-wallpaper"]`, {
+      position: 'fixed',
+      inset: 0,
+      'z-index': -1,
+      'pointer-events': 'none',
+      contain: 'strict',
+      transform: 'translateZ(0)',
+      'background-position': 'center',
+      'background-size': 'cover',
+      'background-repeat': 'no-repeat',
     }),
     rule(`${ROOT}[${ATTR_WALLPAPER}] body${INCLUDED}`, {
       'background-color':

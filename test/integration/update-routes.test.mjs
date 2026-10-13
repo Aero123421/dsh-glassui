@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import * as host from '../../dist/index.js'
 const { version } = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
+import * as host from '../../dist/index.js'
 function fixture(config = {}) {
   const routes = new Map(),
     effects = []
@@ -53,6 +53,7 @@ test('another client setting change refuses update admission before any installa
       wallpaperUrl: '',
       sidebar: 'floating',
       codeBlocks: 'glass',
+      inlineCodeOpacity: 72,
       refraction: true,
       highlights: true,
       exclude: '',

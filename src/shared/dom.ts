@@ -10,6 +10,8 @@ export const ATTR_ROOT = 'data-glassui'
 export const ATTR_SIDEBAR = 'data-glassui-sidebar'
 /** On `<html>` while a wallpaper is painted; its value names the wallpaper. */
 export const ATTR_WALLPAPER = 'data-glassui-wallpaper'
+/** The still wallpaper is cached in a compositor layer while the client runs. */
+export const ATTR_STATIC_WALLPAPER = 'data-glassui-static-wallpaper'
 /** On `<html>` while pointer highlights are on. */
 export const ATTR_HIGHLIGHTS = 'data-glassui-highlights'
 /** On `<body>` for the instant the engine reads DSH's own token values. */
@@ -48,6 +50,7 @@ export const ATTR_OWNED = 'data-glassui-owned'
 
 /** Custom properties set on `<html>`. */
 export const VAR_TINT = '--glassui-t'
+export const VAR_INLINE_OPACITY = '--glassui-inline-opacity'
 export const VAR_WALLPAPER = '--glassui-wallpaper'
 /**
  * Custom properties set on a discovered surface while pointer highlights are on:
@@ -75,6 +78,7 @@ export const FOOTPRINT_SELECTOR = [
   ATTR_ROOT,
   ATTR_SIDEBAR,
   ATTR_WALLPAPER,
+  ATTR_STATIC_WALLPAPER,
   ATTR_HIGHLIGHTS,
   ATTR_RAW,
   ATTR_SURFACE,

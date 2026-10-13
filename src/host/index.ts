@@ -65,6 +65,12 @@ export const Config = z.object({
     .default(d.codeBlocks)
     .description('Show code blocks as a denser glass, or keep them solid.')
     .volatile(),
+  inlineCodeOpacity: z
+    .natural()
+    .max(100)
+    .default(d.inlineCodeOpacity)
+    .description('Inline-code background opacity, independent of glass density (0–100).')
+    .volatile(),
   refraction: z
     .boolean()
     .default(d.refraction)
@@ -97,6 +103,7 @@ export function readSettings(config: Config): GlassSettings {
     wallpaperUrl: config.wallpaperUrl.get(),
     sidebar: config.sidebar.get(),
     codeBlocks: config.codeBlocks.get(),
+    inlineCodeOpacity: config.inlineCodeOpacity.get(),
     refraction: config.refraction.get(),
     highlights: config.highlights.get(),
     exclude: config.exclude.get(),

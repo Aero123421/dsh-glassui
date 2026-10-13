@@ -9,6 +9,7 @@ const FOOTPRINT = [
   'data-glassui',
   'data-glassui-sidebar',
   'data-glassui-wallpaper',
+  'data-glassui-static-wallpaper',
   'data-glassui-highlights',
   'data-glassui-raw',
   'data-glassui-surface',
@@ -116,7 +117,7 @@ describe('discovery', () => {
       assert.equal(styles.headerEcho, true, 'a part repainting the block’s glass is recognized')
       assert.equal(color(styles.header).a, 0, 'and turns clear, so the block is one layer of glass')
       assert.equal(color(styles.banner).a, 0, 'the banner fill is clear inside a glass block')
-      assert.equal(styles.inlineCode, 'rgb(240, 241, 243)', 'reserved tokens keep their exact value')
+      assert.equal(color(styles.inlineCode).a, 0.72, 'inline code has its independent default opacity')
     } finally {
       await close()
     }

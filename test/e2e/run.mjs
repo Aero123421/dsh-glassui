@@ -26,6 +26,7 @@ const FOOTPRINT = [
   'data-glassui',
   'data-glassui-sidebar',
   'data-glassui-wallpaper',
+  'data-glassui-static-wallpaper',
   'data-glassui-highlights',
   'data-glassui-raw',
   'data-glassui-surface',
@@ -61,9 +62,12 @@ before(
 
 async function setup() {
   const log = name => join(out, `${name}.log`)
-  await run('build', process.execPath, ['scripts/build.mjs'], { cwd: root, logFile: log('build') })
-  await run('pack', process.execPath, ['scripts/pack.mjs'], { cwd: root, logFile: log('pack') })
-  const tarball = join(root, 'artifacts', `${manifest.name}-${manifest.version}.tgz`)
+  const externalSource = process.env.GLASSUI_E2E_PLUGIN_SOURCE
+  if (!externalSource) {
+    await run('build', process.execPath, ['scripts/build.mjs'], { cwd: root, logFile: log('build') })
+    await run('pack', process.execPath, ['scripts/pack.mjs'], { cwd: root, logFile: log('pack') })
+  }
+  const tarball = externalSource || join(root, 'artifacts', `${manifest.name}-${manifest.version}.tgz`)
   const dsh = await installDsh({
     version: dshVersion,
     dir: join(root, '.cache', 'e2e', `dsh-${dshVersion}`),
@@ -110,12 +114,23 @@ async function storedEnabled(value) {
   assert.fail(`DSH did not store enabled=${value}`)
 }
 
+/** Wait for the Host's next boot rows to include a saved field. */
+async function storedSetting(field, value) {
+  const expected = JSON.stringify(field) + ':' + JSON.stringify(value)
+  for (let attempt = 0; attempt < 40; attempt++) {
+    if ((await pageHtml()).includes(expected)) return
+    await new Promise(resolve => setTimeout(resolve, 200))
+  }
+  assert.fail(`DSH did not store ${expected}`)
+}
+
 /** Open DSH in a fresh browser context and get past first-run screens. */
-async function open(scheme = 'light') {
+async function open(scheme = 'light', contextOptions = {}) {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     colorScheme: scheme,
     locale: 'en-US',
+    ...contextOptions,
   })
   const page = await context.newPage()
   const errors = []
@@ -153,6 +168,15 @@ async function openSettings(page) {
   await page.getByText('Settings', { exact: true }).first().click()
   await page.getByRole('button', { name: 'Glass UI', exact: true }).click()
   await page.getByRole('switch', { name: 'Glass material' }).waitFor()
+}
+
+/** Drive the native range control with trusted keyboard events. */
+async function setRange(slider, value) {
+  await slider.focus()
+  await slider.press(value <= 50 ? 'Home' : 'End')
+  const count = value <= 50 ? value : 100 - value
+  for (let i = 0; i < count; i++) await slider.press(value <= 50 ? 'ArrowRight' : 'ArrowLeft')
+  assert.equal(Number(await slider.inputValue()), value)
 }
 
 describe(`dsh-glassui on DSH ${dshVersion}`, () => {
@@ -255,6 +279,98 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
     }
   })
 
+  it('previews independent inline-code opacity, saves it and translates wallpaper choices', async () => {
+    const { page, errors, close } = await open()
+    try {
+      await openSettings(page)
+      const opacity = page.getByRole('slider', { name: 'Inline-code opacity', exact: true })
+      await setRange(opacity, 23)
+      await page.waitForFunction(() => window.__DSH_GLASSUI_DEBUG__.settings().inlineCodeOpacity === 23)
+      const color = await page
+        .locator('.glassui-inline-preview code')
+        .first()
+        .evaluate(el => getComputedStyle(el).backgroundColor)
+      assert.equal(color, 'rgba(245, 246, 248, 0.23)')
+      await setRange(page.getByRole('slider', { name: 'Transparency', exact: true }), 88)
+      assert.equal(
+        await page
+          .locator('.glassui-inline-preview code')
+          .first()
+          .evaluate(el => getComputedStyle(el).backgroundColor),
+        color,
+      )
+      await opacity.focus()
+      await page.keyboard.press('End')
+      await page.waitForFunction(() => window.__DSH_GLASSUI_DEBUG__.settings().inlineCodeOpacity === 100)
+      await page.keyboard.press('Home')
+      await page.waitForFunction(() => window.__DSH_GLASSUI_DEBUG__.settings().inlineCodeOpacity === 0)
+      await setRange(opacity, 72)
+      await page.evaluate(() => window.__GLASSUI_TEST_LOCALE__.set('ja'))
+      await page.getByRole('slider', { name: 'インラインコードの不透明度', exact: true }).waitFor()
+      await page.getByRole('radio', { name: '自動', exact: true }).waitFor()
+      await page.setViewportSize({ width: 820, height: 1180 })
+      await page.locator('.glassui-inline-preview').scrollIntoViewIfNeeded()
+      await page.screenshot({ path: join(out, 'inline-ja-tablet.png') })
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.locator('.glassui-inline-preview').scrollIntoViewIfNeeded()
+      await page.screenshot({ path: join(out, 'inline-ja-phone.png') })
+      assert.equal(await page.locator('.glassui-page').evaluate(el => el.scrollWidth <= el.clientWidth + 1), true)
+      for (let attempt = 0; attempt < 30 && !(await pageHtml()).includes('"inlineCodeOpacity":72'); attempt++)
+        await page.waitForTimeout(200)
+      assert.ok((await pageHtml()).includes('"inlineCodeOpacity":72'))
+      await page.evaluate(() => window.__GLASSUI_TEST_LOCALE__.set('en'))
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await page.reload()
+      await page.waitForFunction(() => '__DSH_GLASSUI_DEBUG__' in window)
+      await page.getByText('Default workspace', { exact: true }).first().waitFor()
+      await page.locator('[data-composer-input][contenteditable="true"]').first().waitFor()
+      await openSettings(page)
+      assert.equal(await page.getByRole('slider', { name: 'Inline-code opacity', exact: true }).inputValue(), '72')
+      await page.evaluate(() => window.__GLASSUI_TEST_LOCALE__.set('en'))
+      await setRange(page.getByRole('slider', { name: 'Transparency', exact: true }), 35)
+      await storedSetting('tint', 35)
+      assert.deepEqual(errors, [])
+    } finally {
+      await page.evaluate(() => window.__GLASSUI_TEST_LOCALE__.set('en'))
+      await close()
+    }
+  })
+
+  it('keeps touch sliders and refraction eligibility working at tablet DPR through rotation', async () => {
+    const { page, errors, close } = await open('light', {
+      deviceScaleFactor: 2,
+      hasTouch: true,
+    })
+    try {
+      await openSettings(page)
+      assert.equal(await page.evaluate(() => devicePixelRatio), 2)
+      const supported = (await diagnostics(page)).environment.refraction
+      for (const viewport of [
+        { width: 820, height: 1180 },
+        { width: 1180, height: 820 },
+        { width: 820, height: 1180 },
+      ]) {
+        await page.setViewportSize(viewport)
+        const opacity = page.getByRole('slider', { name: 'Inline-code opacity', exact: true })
+        await opacity.scrollIntoViewIfNeeded()
+        const box = await opacity.boundingBox()
+        assert.ok(box)
+        await page.touchscreen.tap(box.x + box.width * 0.6, box.y + box.height / 2)
+        const value = Number(await opacity.inputValue())
+        assert.ok(value > 0 && value < 100)
+        assert.equal(await page.evaluate(() => window.__DSH_GLASSUI_DEBUG__.settings().inlineCodeOpacity), value)
+        assert.equal((await diagnostics(page)).environment.refraction, supported)
+        assert.equal(await page.locator('.glassui-page').evaluate(el => el.scrollWidth <= el.clientWidth + 1), true)
+      }
+      await setRange(page.getByRole('slider', { name: 'Inline-code opacity', exact: true }), 72)
+      await storedSetting('inlineCodeOpacity', 72)
+      await page.screenshot({ path: join(out, 'inline-touch-dpr2.png') })
+      assert.deepEqual(errors, [])
+    } finally {
+      await close()
+    }
+  })
+
   it('updates independently, flushes slider saves and keeps Japanese text readable with glass off', async () => {
     const { page, errors, close } = await open()
     try {
@@ -286,8 +402,15 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
             exact: true,
           })
           .waitFor()
+      } else if (process.env.GLASSUI_E2E_EXPECT_RELEASE_NETWORK_ERROR === '1') {
+        assert.equal(updateStatus.status, 'blocked')
+        assert.equal(updateStatus.reason, 'network', JSON.stringify(updateStatus))
+        await page.getByText('Could not contact the release service. Try again later.', { exact: true }).waitFor()
+        console.log(
+          '# Live GitHub release API unavailable: verified bounded network failure; update interactions below use the explicit wire fixture.',
+        )
       } else {
-        assert.equal(updateStatus.status, 'current')
+        assert.equal(updateStatus.status, 'current', JSON.stringify(updateStatus))
         await page.getByText('No newer stable release.', { exact: true }).waitFor()
       }
       let begins = 0,
@@ -325,7 +448,7 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
           },
         })
       })
-      const range = page.locator('.glassui-range')
+      const range = page.getByRole('slider', { name: 'Transparency', exact: true })
       await page.getByRole('button', { name: 'Check plugin update', exact: true }).click()
       await page.getByRole('button', { name: 'Update plugin', exact: true }).waitFor()
       await range.fill('64')
@@ -352,12 +475,20 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
       await page.getByRole('button', { name: '更新を確認', exact: true }).click()
       await page.getByRole('button', { name: '更新する', exact: true }).waitFor()
       const checkButton = page.getByRole('button', { name: '更新を確認', exact: true })
-      const installButton = page.getByRole('button', { name: '更新する', exact: true })
-      const first = await checkButton.boundingBox(),
-        second = await installButton.boundingBox()
+      // Read both rectangles together; independent protocol calls may observe
+      // different frames of DSH's automatic scroll animation.
+      const [first, second] = await page.locator('.glassui-update .glassui-actions').evaluate(row => {
+        const buttons = [...row.querySelectorAll('button')]
+        return ['更新を確認', '更新する'].map(label => {
+          const button = buttons.find(element => element.textContent === label)
+          if (!button) return null
+          const rect = button.getBoundingClientRect()
+          return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+        })
+      })
       assert.ok(
         first && second && (first.y + first.height <= second.y || first.x + first.width <= second.x),
-        'update buttons do not overlap',
+        `update buttons do not overlap: ${JSON.stringify({ first, second })}`,
       )
       assert.equal(await checkButton.evaluate(element => element.scrollHeight <= element.clientHeight), true)
       await page.screenshot({ path: join(out, 'update-ja-candidate-narrow.png') })
@@ -369,6 +500,11 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
       await page.evaluate(() => window.__GLASSUI_TEST_LOCALE__.set('en'))
       assert.deepEqual(errors, [])
     } finally {
+      await page.evaluate(() => window.__GLASSUI_TEST_LOCALE__.set('en'))
+      if (!(await page.evaluate(() => window.__DSH_GLASSUI_DEBUG__.settings().enabled))) {
+        await page.getByRole('switch', { name: 'Glass material', exact: true }).click()
+        await storedEnabled(true)
+      }
       await close()
     }
   })

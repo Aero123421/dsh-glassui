@@ -1,6 +1,6 @@
 {
   "name": "dsh-glassui",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Liquid Glass-style theme and wallpapers for DeepSeek Harness Web.",
   "type": "module",
   "license": "MIT",

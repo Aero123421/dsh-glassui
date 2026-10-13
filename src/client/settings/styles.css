@@ -631,3 +631,70 @@
   line-height: 20px;
   flex-shrink: 0;
 }
+
+.glassui-inline-settings {
+  padding: 16px 0;
+}
+
+.glassui-inline-preview {
+  padding: 16px;
+  border-radius: 12px;
+  background:
+    repeating-linear-gradient(135deg, rgb(128 128 128 / 0.12) 0 12px, transparent 12px 24px),
+    var(--glassui-wallpaper, none) center / cover;
+}
+
+.glassui-inline-preview p {
+  margin: 0;
+  line-height: 2;
+  overflow-wrap: anywhere;
+}
+
+.glassui-inline-preview code {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--dsw-alias-markdown-inline-code);
+  color: inherit;
+}
+
+.glassui-inline-preview code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.glassui-inline-settings .glassui-slider__head {
+  gap: 8px;
+}
+
+.glassui-inline-settings .glassui-slider__value {
+  flex-shrink: 0;
+}
+
+@container glassui-settings (max-width: 200px) {
+  .glassui-hero__art {
+    max-width: 100%;
+  }
+
+  .glassui-status {
+    box-sizing: border-box;
+    max-width: 100%;
+  }
+
+  .glassui-button {
+    box-sizing: border-box;
+    height: auto;
+    min-height: 30px;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .glassui-actions {
+    flex-wrap: wrap;
+  }
+
+  .glassui-note,
+  .glassui-status,
+  .glassui-footer {
+    overflow-wrap: anywhere;
+  }
+}

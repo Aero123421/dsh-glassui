@@ -113,3 +113,95 @@ describe('wallpapers', () => {
     }
   })
 })
+
+describe('cached still wallpaper', () => {
+  for (const dark of [false, true])
+    for (const refraction of [false, true]) {
+      it(`preserves root-background pixels (${dark ? 'dark' : 'light'}, refraction ${refraction})`, async () => {
+        const f = await openFixture({ dark, config: { wallpaper: 'bay', refraction } })
+        try {
+          await settle(f.page, 20)
+          await f.page.waitForTimeout(200)
+          const after = await f.page.screenshot()
+          await f.page.evaluate(() => document.documentElement.removeAttribute('data-glassui-static-wallpaper'))
+          const before = await f.page.screenshot()
+          assert.deepEqual(after, before, 'same pixels with cached layer and original root SVG')
+          assert.deepEqual(f.errors, [])
+        } finally {
+          await f.close()
+        }
+      })
+    }
+
+  it('retains full cover geometry at DPR2 through rotation, removes the layer on off, and leaves printing clean', async () => {
+    const f = await openFixture({
+      deviceScaleFactor: 2,
+      viewport: { width: 820, height: 1180 },
+      config: { refraction: false },
+    })
+    try {
+      for (const viewport of [
+        { width: 820, height: 1180 },
+        { width: 1180, height: 820 },
+      ]) {
+        await f.page.setViewportSize(viewport)
+        await settle(f.page, 12)
+        const cached = await f.page.screenshot()
+        await f.page.evaluate(() => document.documentElement.removeAttribute('data-glassui-static-wallpaper'))
+        assert.deepEqual(await f.page.screenshot(), cached)
+        await f.page.evaluate(() => document.documentElement.setAttribute('data-glassui-static-wallpaper', ''))
+      }
+      await f.page.emulateMedia({ media: 'print' })
+      assert.equal(
+        await f.page
+          .locator('[data-glassui-owned="static-wallpaper"]')
+          .evaluate(el => el.getBoundingClientRect().height),
+        0,
+      )
+      await f.page.emulateMedia({ media: 'screen' })
+      await f.page.evaluate(() => window.__fixture.form.update({ enabled: false }))
+      assert.equal(await f.page.locator('[data-glassui-owned="static-wallpaper"]').count(), 0)
+      assert.equal(await f.page.getAttribute('html', 'data-glassui-static-wallpaper'), null)
+      assert.deepEqual(f.errors, [])
+    } finally {
+      await f.close()
+    }
+  })
+})
+
+it('lets inline root background customizations win and resumes caching when they are removed', async () => {
+  const f = await openFixture()
+  try {
+    await f.page.evaluate(() => (document.documentElement.style.background = 'rgb(12 34 56)'))
+    await settle(f.page, 6)
+    assert.equal(await f.page.locator('[data-glassui-owned="static-wallpaper"]').count(), 0)
+    assert.equal(await f.page.locator('html').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(12, 34, 56)')
+    await f.page.evaluate(() => document.documentElement.style.removeProperty('background'))
+    await settle(f.page, 6)
+    assert.equal(await f.page.locator('[data-glassui-owned="static-wallpaper"]').count(), 1)
+    assert.deepEqual(f.errors, [])
+  } finally {
+    await f.close()
+  }
+})
+
+it('keeps custom images in the original renderer so animated image timelines are not replaced', async () => {
+  const f = await openFixture({
+    config: {
+      wallpaper: 'custom',
+      wallpaperUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+    },
+  })
+  try {
+    assert.equal(await f.page.locator('[data-glassui-owned="static-wallpaper"]').count(), 0)
+    assert.equal(await f.page.getAttribute('html', 'data-glassui-static-wallpaper'), null)
+    assert.ok(
+      (await f.page.locator('html').evaluate(el => getComputedStyle(el).backgroundImage)).includes('data:image/gif;'),
+    )
+    await f.page.evaluate(() => window.__fixture.form.update({ tint: 93 }))
+    assert.equal(await f.page.locator('[data-glassui-owned="static-wallpaper"]').count(), 0)
+    assert.deepEqual(f.errors, [])
+  } finally {
+    await f.close()
+  }
+})
