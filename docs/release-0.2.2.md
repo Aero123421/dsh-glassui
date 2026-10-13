@@ -11,7 +11,7 @@
 
 ## 性能の前後測定
 
-基準commit: `2aeb4f4`（0.2.0）。比較対象: この文書を含む0.2.2のエンジン変更。
+基準commit: `2aeb4f4`（0.2.0）。比較対象: 0.2.2のエンジン変更。初回比較は両側Playwright 1.56.1で行い、依存更新とroot背景保護を含む `9f123be` でも同じChromiumで16条件を再測定しました。再測定の同期更新中央値は0.1〜0.2ms、Bayのフレーム間隔p95は22〜43ms、静止8条件はピクセル一致しています。
 
 Linuxコンテナ、Chromium 154.0.8037.57、Playwright 1.56.1、Node 24.19.0、同じDSH相当のテーマ・実配布bundleで測定しました。1800行の会話を表示し、透明度0〜100を1値ずつ毎requestAnimationFrameに反映、その後60行を1行ずつ追加します。Light/Dark × Bay/Tide × 屈折ON/OFF × 1440×900/820×1180の16条件です。viewportの比較はタブレット実機の再現ではありません。実React設定画面のrender時間はこの数値に含みません。
 
@@ -52,6 +52,10 @@ DevTools trace（devtools.timelineとblink.user_timing）、Performanceメトリ
 
 ## 検証と残る範囲
 
-最終結果はPRとCIを参照してください。ローカルではunit/check、Chromium integration、実DSH 0.2.1-alpha.2と0.2.0-rc.2へのクリーンtgz導入、保存・再読込、日英中、390px・820px、DPR2とタッチ・回転、compatとpackを検証します。画面操作の主張は実DSHのnative E2Eを根拠にします。
+ローカルの `npm run check`（unit 142件）、Chromium integration（57件）、実DSH 0.2.1-alpha.2／0.2.0-rc.2へのクリーンtgz導入native E2E（各14件）、保存・再読込、日英中、390px・820px、DPR2とタッチ・回転、compatとpackが成功しました。画面操作は実DSHのnative E2Eを根拠にしています。
+
+ローカルではGitHub APIへのアクセスが制限されるため、alphaのnative試験に `GLASSUI_E2E_EXPECT_RELEASE_NETWORK_ERROR=1` を明示し、network拒否の説明と以後のwire fixtureによる更新操作を検証しました。GitHub CIではこのフラグを指定せず、live Releaseの確認を必須にしています。
+
+![実DSHの日本語設定画面とインラインコードのプレビュー](images/inline-code.png)
 
 Issue #6/#7の修正を含みます。#8は今回の静止壁紙レイヤー再利用、差分探索、ポインターread/write整理、壁紙一覧のmemo化、診断JSONの遅延生成、カスタム壁紙キャッシュの上限追加を第一段階とし、全体性能の追跡を継続します。#9はDPR2・タッチ・回転のエミュレーションを追加しましたが、実iPadOS Safari/PWA・Android Chrome/PWA、GPU/電力/温度、復帰と長時間利用は未検証なので完了扱いしません。
