@@ -27,11 +27,11 @@
 
 DSH `>=0.2.0-rc.2 <0.3.0` を対象とし、0.2.0-rc.2 と 0.2.1-alpha.2 でテストしています。
 
-1. DSH Web の「Plugins → Add plugin」に `github:Aero123421/dsh-glassui#v0.1.0` を入力してインストールします。
+1. DSH Web の「Plugins → Add plugin」に `github:Aero123421/dsh-glassui#v0.1.1` を入力してインストールします。
 2. ターミナルからなら:
 
    ```sh
-   dsh plugin --profile web add github:Aero123421/dsh-glassui#v0.1.0
+   dsh plugin --profile web add github:Aero123421/dsh-glassui#v0.1.1
    ```
 
 3. DSH に再起動を求められたら再起動し、DSH Web を開き直します。最初からガラスがオンになっていて、「設定 → Glass UI」で調整できます。

@@ -1,4 +1,4 @@
-/*! dsh-glassui 0.1.0 | MIT License | https://github.com/Aero123421/dsh-glassui#readme */
+/*! dsh-glassui 0.1.1 | MIT License | https://github.com/Aero123421/dsh-glassui#readme */
 
 // src/host/index.ts
 import z from "@deepseek-ai/schemastery";
@@ -1008,7 +1008,7 @@ function readSettings(config) {
 }
 function apply(ctx, config) {
   ctx.on("webserver/index-inject", (table) => {
-    table.push(...bootRows(readSettings(config), "0.1.0"));
+    table.push(...bootRows(readSettings(config), "0.1.1"));
   });
 }
 export {
