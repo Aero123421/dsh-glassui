@@ -23,7 +23,9 @@ import {
 } from '../../shared/settings.ts'
 import { isAnimated, wallpaperImage, type Scheme } from '../../shared/wallpapers.ts'
 import type { ControllerState, GlassController } from '../controller.ts'
-import type { CopyKey } from './locales.ts'
+import type { UpdateController } from '../update-controller.mjs'
+import type { Status } from '../../host/updates.mjs'
+import { en, type CopyKey } from './locales.ts'
 
 /** Translate a key, filling `{name}` placeholders. */
 export type Translate = (key: CopyKey, params?: Readonly<Record<string, string | number>>) => string
@@ -38,6 +40,7 @@ export interface LocaleSource {
 /** Inputs of the page. */
 export interface SettingsPageProps {
   controller: GlassController
+  updates: UpdateController
   locale: LocaleSource
   version: string
   /** Whether this browser can render refraction. */
@@ -332,6 +335,106 @@ function Diagnostics(props: { state: ControllerState; t: Translate; version: str
   )
 }
 
+const UPDATE_MESSAGES: Record<Status, CopyKey> = {
+  idle: 'updateIdle',
+  checking: 'updateChecking',
+  current: 'updateCurrent',
+  available: 'updateAvailable',
+  blocked: 'updateBlocked',
+  settling: 'updateSettling',
+  starting: 'updatePreparing',
+  preparing: 'updatePreparing',
+  installing: 'updateInstalling',
+  'restart-required': 'updateRestart',
+  applied: 'updateApplied',
+  failed: 'updateFailed',
+  cancelled: 'updateCancelled',
+  overridden: 'updateOverridden',
+  unknown: 'updateUnknown',
+}
+function UpdatesRow({ controller, t }: { controller: UpdateController; t: Translate }) {
+  const view = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
+  useEffect(() => {
+    void controller.load()
+  }, [controller])
+  const busy = ['settling', 'checking', 'starting', 'preparing', 'installing'].includes(view.status)
+  const reason: CopyKey =
+    `updateReason_${view.reason}` in en ? (`updateReason_${view.reason}` as CopyKey) : 'updateReason_network'
+  return (
+    <section className="glassui-section glassui-update" aria-label={t('updateTitle')}>
+      <h3 className="glassui-section__title">{t('updateTitle')}</h3>
+      <div className="glassui-card glassui-stack">
+        <p>
+          {t('updateRunning')}: {view.runtimeVersion ?? __GLASSUI_VERSION__}
+          {view.installedVersion ? ` · ${t('updateInstalledVersion')}: ${view.installedVersion}` : ''}
+        </p>
+        <p role={['failed', 'blocked'].includes(view.status) ? 'alert' : 'status'}>{t(UPDATE_MESSAGES[view.status])}</p>
+        {view.reason ? <p className="glassui-note">{t(reason)}</p> : null}
+        {view.checkedAt ? (
+          <p className="glassui-note">
+            {t('updateChecked')}: {new Date(view.checkedAt).toLocaleString()}
+          </p>
+        ) : null}
+        {view.candidate ? (
+          <>
+            <p>
+              {view.runtimeVersion} → {view.candidate.version} · DSH {view.candidate.compatibility}
+            </p>
+            <p className="glassui-update__notes">{view.candidate.notes}</p>
+          </>
+        ) : view.version ? (
+          <p>
+            {view.runtimeVersion} → {view.version}
+          </p>
+        ) : null}
+        <div className="glassui-actions">
+          <button
+            type="button"
+            className="glassui-button"
+            disabled={busy || view.status === 'unknown' || view.status === 'restart-required'}
+            onClick={() => {
+              void controller.check()
+            }}
+          >
+            {t('updateCheck')}
+          </button>
+          {view.status === 'available' ? (
+            <button
+              type="button"
+              className="glassui-button"
+              onClick={() => {
+                void controller.begin()
+              }}
+            >
+              {t('updateInstall')}
+            </button>
+          ) : null}
+          {view.status === 'unknown' ? (
+            <button
+              type="button"
+              className="glassui-button"
+              onClick={() => {
+                void controller.load()
+              }}
+            >
+              {t('updateReconcile')}
+            </button>
+          ) : null}
+          <a href="https://github.com/Aero123421/dsh-glassui/releases" target="_blank" rel="noopener noreferrer">
+            {t('updateManual')}
+          </a>
+        </div>
+        {view.result ? (
+          <p className="glassui-note">
+            {t('updateStage')}: {view.result.stage}
+            {view.result.error ? ` · ${view.result.error.code}` : ''}
+          </p>
+        ) : null}
+      </div>
+    </section>
+  )
+}
+
 /**
  * Render the settings section.
  * @param props - controller, copy and environment.
@@ -339,6 +442,7 @@ function Diagnostics(props: { state: ControllerState; t: Translate; version: str
  */
 export function SettingsPage(props: SettingsPageProps) {
   const state = useController(props.controller)
+  const update = useSyncExternalStore(props.updates.subscribe, props.updates.getSnapshot)
   const t = useTranslate(props.locale)
   const scheme = useScheme()
   const id = useId()
@@ -386,145 +490,150 @@ export function SettingsPage(props: SettingsPageProps) {
         </p>
       ) : null}
 
-      <section className="glassui-section" aria-labelledby={`${id}-material`}>
-        <h3 className="glassui-section__title" id={`${id}-material`}>
-          {t('section.material')}
-        </h3>
-        <div className="glassui-card">
-          <Row label={t('enable.label')} hint={t('enable.hint')}>
-            <Switch checked={settings.enabled} label={t('enable.label')} onChange={value => set('enabled', value)} />
-          </Row>
-          <div className="glassui-slider">
-            <div className="glassui-slider__head">
-              <label className="glassui-row__label" htmlFor={`${id}-tint`}>
-                {t('tint.label')}
-              </label>
-              <span className="glassui-slider__value">{settings.tint}</span>
-            </div>
-            <input
-              id={`${id}-tint`}
-              type="range"
-              min={0}
-              max={100}
-              step={1}
-              value={settings.tint}
-              className="glassui-range"
-              style={{ '--glassui-progress': `${settings.tint}%` } as CSSProperties}
-              onChange={event => set('tint', Number(event.target.value))}
-            />
-            <div className="glassui-slider__ends" aria-hidden="true">
-              <span>{t('tint.clear')}</span>
-              <span>{t('tint.tinted')}</span>
+      <fieldset
+        className="glassui-settings-controls"
+        disabled={state.updating || ['settling', 'starting', 'preparing', 'installing'].includes(update.status)}
+      >
+        <section className="glassui-section" aria-labelledby={`${id}-material`}>
+          <h3 className="glassui-section__title" id={`${id}-material`}>
+            {t('section.material')}
+          </h3>
+          <div className="glassui-card">
+            <Row label={t('enable.label')} hint={t('enable.hint')}>
+              <Switch checked={settings.enabled} label={t('enable.label')} onChange={value => set('enabled', value)} />
+            </Row>
+            <div className="glassui-slider">
+              <div className="glassui-slider__head">
+                <label className="glassui-row__label" htmlFor={`${id}-tint`}>
+                  {t('tint.label')}
+                </label>
+                <span className="glassui-slider__value">{settings.tint}</span>
+              </div>
+              <input
+                id={`${id}-tint`}
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={settings.tint}
+                className="glassui-range"
+                style={{ '--glassui-progress': `${settings.tint}%` } as CSSProperties}
+                onChange={event => set('tint', Number(event.target.value))}
+              />
+              <div className="glassui-slider__ends" aria-hidden="true">
+                <span>{t('tint.clear')}</span>
+                <span>{t('tint.tinted')}</span>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section className="glassui-section" aria-labelledby={`${id}-wallpaper`}>
-        <h3 className="glassui-section__title" id={`${id}-wallpaper`}>
-          {t('section.wallpaper')}
-        </h3>
-        <div className="glassui-card">
-          <WallpaperPicker
-            value={settings.wallpaper}
-            scheme={scheme}
-            t={t}
-            onChange={value => set('wallpaper', value)}
-          />
-          {settings.wallpaper === 'auto' ? <p className="glassui-note">{t('wallpaper.auto.hint')}</p> : null}
-          {settings.wallpaper !== 'auto' && isAnimated(preset(settings.wallpaper) ?? 'bay') ? (
-            <p className="glassui-note">{t('wallpaper.live.hint')}</p>
-          ) : null}
-          {settings.wallpaper === 'custom' ? (
-            <Row label={t('wallpaper.url.label')} htmlFor={`${id}-url`}>
-              <TextField
-                id={`${id}-url`}
-                value={settings.wallpaperUrl}
-                placeholder={t('wallpaper.url.placeholder')}
-                invalid={settings.wallpaperUrl !== '' && !isSafeWallpaperUrl(settings.wallpaperUrl)}
-                message={t('wallpaper.url.invalid')}
-                validate={isSafeWallpaperUrl}
-                onCommit={value => set('wallpaperUrl', value)}
+        <section className="glassui-section" aria-labelledby={`${id}-wallpaper`}>
+          <h3 className="glassui-section__title" id={`${id}-wallpaper`}>
+            {t('section.wallpaper')}
+          </h3>
+          <div className="glassui-card">
+            <WallpaperPicker
+              value={settings.wallpaper}
+              scheme={scheme}
+              t={t}
+              onChange={value => set('wallpaper', value)}
+            />
+            {settings.wallpaper === 'auto' ? <p className="glassui-note">{t('wallpaper.auto.hint')}</p> : null}
+            {settings.wallpaper !== 'auto' && isAnimated(preset(settings.wallpaper) ?? 'bay') ? (
+              <p className="glassui-note">{t('wallpaper.live.hint')}</p>
+            ) : null}
+            {settings.wallpaper === 'custom' ? (
+              <Row label={t('wallpaper.url.label')} htmlFor={`${id}-url`}>
+                <TextField
+                  id={`${id}-url`}
+                  value={settings.wallpaperUrl}
+                  placeholder={t('wallpaper.url.placeholder')}
+                  invalid={settings.wallpaperUrl !== '' && !isSafeWallpaperUrl(settings.wallpaperUrl)}
+                  message={t('wallpaper.url.invalid')}
+                  validate={isSafeWallpaperUrl}
+                  onCommit={value => set('wallpaperUrl', value)}
+                />
+              </Row>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="glassui-section" aria-labelledby={`${id}-layout`}>
+          <h3 className="glassui-section__title" id={`${id}-layout`}>
+            {t('section.layout')}
+          </h3>
+          <div className="glassui-card">
+            <Row label={t('sidebar.label')}>
+              <Segmented
+                label={t('sidebar.label')}
+                value={settings.sidebar}
+                options={[
+                  { value: 'floating', label: t('sidebar.floating') },
+                  { value: 'docked', label: t('sidebar.docked') },
+                ]}
+                onChange={value => set('sidebar', value)}
               />
             </Row>
-          ) : null}
-        </div>
-      </section>
-
-      <section className="glassui-section" aria-labelledby={`${id}-layout`}>
-        <h3 className="glassui-section__title" id={`${id}-layout`}>
-          {t('section.layout')}
-        </h3>
-        <div className="glassui-card">
-          <Row label={t('sidebar.label')}>
-            <Segmented
-              label={t('sidebar.label')}
-              value={settings.sidebar}
-              options={[
-                { value: 'floating', label: t('sidebar.floating') },
-                { value: 'docked', label: t('sidebar.docked') },
-              ]}
-              onChange={value => set('sidebar', value)}
-            />
-          </Row>
-          <Row label={t('code.label')} hint={t('code.hint')}>
-            <Segmented
-              label={t('code.label')}
-              value={settings.codeBlocks}
-              options={[
-                { value: 'glass', label: t('code.glass') },
-                { value: 'solid', label: t('code.solid') },
-              ]}
-              onChange={value => set('codeBlocks', value)}
-            />
-          </Row>
-          <Row
-            label={t('refraction.label')}
-            hint={props.refractionSupported ? t('refraction.hint') : t('refraction.unavailable')}
-          >
-            <Switch
-              checked={settings.refraction && props.refractionSupported}
+            <Row label={t('code.label')} hint={t('code.hint')}>
+              <Segmented
+                label={t('code.label')}
+                value={settings.codeBlocks}
+                options={[
+                  { value: 'glass', label: t('code.glass') },
+                  { value: 'solid', label: t('code.solid') },
+                ]}
+                onChange={value => set('codeBlocks', value)}
+              />
+            </Row>
+            <Row
               label={t('refraction.label')}
-              disabled={!props.refractionSupported}
-              onChange={value => set('refraction', value)}
-            />
-          </Row>
-          <Row label={t('highlights.label')} hint={t('highlights.hint')}>
-            <Switch
-              checked={settings.highlights}
-              label={t('highlights.label')}
-              onChange={value => set('highlights', value)}
-            />
-          </Row>
-        </div>
-      </section>
-
-      <section className="glassui-section" aria-labelledby={`${id}-compat`}>
-        <h3 className="glassui-section__title" id={`${id}-compat`}>
-          {t('section.compat')}
-        </h3>
-        <div className="glassui-card">
-          <div className="glassui-stack">
-            <label className="glassui-row__label" htmlFor={`${id}-exclude`}>
-              {t('exclude.label')}
-            </label>
-            <span className="glassui-row__hint">{t('exclude.hint')}</span>
-            <TextField
-              id={`${id}-exclude`}
-              value={settings.exclude}
-              placeholder={t('exclude.placeholder')}
-              invalid={diagnostics.invalidExclude}
-              message={t('exclude.invalid')}
-              onCommit={value => set('exclude', value)}
-            />
+              hint={props.refractionSupported ? t('refraction.hint') : t('refraction.unavailable')}
+            >
+              <Switch
+                checked={settings.refraction && props.refractionSupported}
+                label={t('refraction.label')}
+                disabled={!props.refractionSupported}
+                onChange={value => set('refraction', value)}
+              />
+            </Row>
+            <Row label={t('highlights.label')} hint={t('highlights.hint')}>
+              <Switch
+                checked={settings.highlights}
+                label={t('highlights.label')}
+                onChange={value => set('highlights', value)}
+              />
+            </Row>
           </div>
-          <div className="glassui-stack">
-            <span className="glassui-row__label">{t('diag.title')}</span>
-            <Diagnostics state={state} t={t} version={props.version} />
-          </div>
-        </div>
-      </section>
+        </section>
 
+        <section className="glassui-section" aria-labelledby={`${id}-compat`}>
+          <h3 className="glassui-section__title" id={`${id}-compat`}>
+            {t('section.compat')}
+          </h3>
+          <div className="glassui-card">
+            <div className="glassui-stack">
+              <label className="glassui-row__label" htmlFor={`${id}-exclude`}>
+                {t('exclude.label')}
+              </label>
+              <span className="glassui-row__hint">{t('exclude.hint')}</span>
+              <TextField
+                id={`${id}-exclude`}
+                value={settings.exclude}
+                placeholder={t('exclude.placeholder')}
+                invalid={diagnostics.invalidExclude}
+                message={t('exclude.invalid')}
+                onCommit={value => set('exclude', value)}
+              />
+            </div>
+            <div className="glassui-stack">
+              <span className="glassui-row__label">{t('diag.title')}</span>
+              <Diagnostics state={state} t={t} version={props.version} />
+            </div>
+          </div>
+        </section>
+      </fieldset>
+      <UpdatesRow controller={props.updates} t={t} />
       <footer className="glassui-footer">
         {state.save === 'saving' ? t('save.saving') : t('footer', { version: props.version })}
       </footer>

@@ -1,6 +1,6 @@
 {
   "name": "dsh-glassui",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Liquid Glass-style theme and wallpapers for DeepSeek Harness Web.",
   "type": "module",
   "license": "MIT",
@@ -63,7 +63,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test --test-reporter=spec --disable-warning=ExperimentalWarning \"test/unit/*.test.ts\"",
+    "test": "node --test --test-reporter=spec --disable-warning=ExperimentalWarning \"test/unit/*.test.ts\" \"test/unit/*.test.mjs\"",
     "test:integration": "node scripts/build.mjs && node --test --test-reporter=spec --test-concurrency=1 \"test/integration/*.test.mjs\"",
     "test:e2e": "node --test-reporter=spec test/e2e/run.mjs",
     "compat": "node scripts/compat.mjs",
@@ -72,15 +72,18 @@
     "screenshots": "node scripts/screenshots.mjs"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-plugin-manager": "^0.2.1-alpha.2",
     "@deepseek-ai/schemastery": "3.18.5-alpha.1",
     "@eslint/js": "10.0.1",
     "@types/node": "22.20.5",
     "@types/react": "19.2.7",
+    "@types/semver": "^7.8.0",
     "esbuild": "0.28.2",
     "eslint": "10.12.0",
     "globals": "17.13.0",
     "playwright": "1.56.1",
     "prettier": "3.9.10",
+    "semver": "^7.8.5",
     "typescript": "6.0.3",
     "typescript-eslint": "8.71.1"
   },

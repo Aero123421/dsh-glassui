@@ -12,13 +12,14 @@ import { after, before, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { chromium, request } from 'playwright'
 import { createWorld, installDsh, installPlugin, removeWorld, startWeb } from './lib/dsh.mjs'
+import { localeFixture } from './lib/locale.mjs'
 import { REPLY_PREFIX, startMockLlm } from './lib/mock-llm.mjs'
 import { run, stopAll } from './lib/procs.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const dshVersion = process.env.DSH_VERSION || manifest.glassui.e2e.dsh
-const out = join(root, 'artifacts', 'e2e')
+const out = process.env.GLASSUI_E2E_ARTIFACT_DIR || join(root, 'artifacts', 'e2e')
 mkdirSync(out, { recursive: true })
 
 const FOOTPRINT = [
@@ -72,6 +73,7 @@ async function setup() {
   world = await createWorld()
   const profile = await installPlugin({ dsh, world, tarball, logFile: log('install-plugin') })
   assert.ok(profile.dependencies?.[manifest.name], 'the plugin is in the Web profile')
+  await installPlugin({ dsh, world, tarball: await localeFixture(world), logFile: log('install-locale-fixture') })
   mock = await startMockLlm()
   web = await startWeb({
     dsh,
@@ -149,7 +151,7 @@ function kinds(page) {
 
 async function openSettings(page) {
   await page.getByText('Settings', { exact: true }).first().click()
-  await page.getByText('Glass UI', { exact: true }).first().click()
+  await page.getByRole('button', { name: 'Glass UI', exact: true }).click()
   await page.getByRole('switch', { name: 'Glass material' }).waitFor()
 }
 
@@ -248,6 +250,109 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
       await page.waitForFunction(() => document.documentElement.getAttribute('data-glassui-sidebar') === 'docked')
       await page.getByRole('radio', { name: 'Floating' }).click()
       await page.waitForFunction(() => document.documentElement.getAttribute('data-glassui-sidebar') === 'floating')
+    } finally {
+      await close()
+    }
+  })
+
+  it('updates independently, flushes slider saves and keeps Japanese text readable with glass off', async () => {
+    const { page, errors, close } = await open()
+    try {
+      await openSettings(page)
+      assert.equal(await page.getByRole('heading', { name: 'Glass UI plugin', exact: true }).count(), 1)
+      const anonymous = await request.newContext()
+      try {
+        assert.equal(
+          (
+            await anonymous.post(web.origin + '/api/dsh-glassui/update-check', {
+              data: { type: 'client-request', method: 'dsh-glassui/update-check', rpcId: 'unauthorized', payload: {} },
+            })
+          ).status(),
+          401,
+        )
+      } finally {
+        await anonymous.dispose()
+      }
+
+      await page.getByRole('button', { name: 'Check plugin update', exact: true }).click()
+      await page.getByText('No newer stable release.', { exact: true }).waitFor()
+      let begins = 0,
+        submitted
+      await page.route('**/api/dsh-glassui/update-check', async route => {
+        await route.fulfill({
+          json: {
+            type: 'server-response',
+            rpcId: route.request().postDataJSON().rpcId,
+            result: {
+              ok: true,
+              value: {
+                status: 'available',
+                runtimeVersion: manifest.version,
+                candidate: {
+                  id: 'fixture',
+                  version: '0.3.0',
+                  notes: 'Fixture release notes',
+                  compatibility: dshVersion,
+                },
+              },
+            },
+          },
+        })
+      })
+      await page.route('**/api/dsh-glassui/update-begin', async route => {
+        begins++
+        submitted = route.request().postDataJSON().payload
+        await route.fulfill({
+          json: {
+            type: 'server-response',
+            rpcId: route.request().postDataJSON().rpcId,
+            result: { ok: false, error: { code: 'dsh-glassui/settings', message: 'settings', details: {} } },
+          },
+        })
+      })
+      const range = page.locator('.glassui-range')
+      await page.getByRole('button', { name: 'Check plugin update', exact: true }).click()
+      await page.getByRole('button', { name: 'Update plugin', exact: true }).waitFor()
+      await range.fill('64')
+      await page.getByRole('button', { name: 'Update plugin', exact: true }).click()
+      await page
+        .getByText('Settings could not be saved or changed elsewhere. Resolve the save error and try again.', {
+          exact: true,
+        })
+        .waitFor()
+      assert.equal(begins, 1)
+      assert.equal(submitted.settings.tint, 64)
+      // The real Host boot snapshot proves the debounce was flushed before begin.
+      assert.equal(/"tint":64/.test(await pageHtml()), true)
+      await page.evaluate(() => window.__GLASSUI_TEST_LOCALE__.set('ja'))
+      await page.getByRole('heading', { name: 'Glass UIプラグイン', exact: true }).waitFor()
+      await page.getByRole('switch', { name: 'ガラスの質感', exact: true }).click()
+      await page.waitForFunction(() => !document.documentElement.hasAttribute('data-glassui'))
+      await page.setViewportSize({ width: 390, height: 760 })
+      await page.emulateMedia({ reducedMotion: 'reduce' })
+      await page.locator('.glassui-update').scrollIntoViewIfNeeded()
+      assert.equal(await page.evaluate(() => document.querySelector('.glassui-update').scrollWidth <= innerWidth), true)
+      assert.equal(await page.locator('style[data-test-locale-font]').count(), 1)
+      await page.screenshot({ path: join(out, 'update-ja-off-narrow.png') })
+      await page.getByRole('button', { name: '更新を確認', exact: true }).click()
+      await page.getByRole('button', { name: '更新する', exact: true }).waitFor()
+      const checkButton = page.getByRole('button', { name: '更新を確認', exact: true })
+      const installButton = page.getByRole('button', { name: '更新する', exact: true })
+      const first = await checkButton.boundingBox(),
+        second = await installButton.boundingBox()
+      assert.ok(
+        first && second && (first.y + first.height <= second.y || first.x + first.width <= second.x),
+        'update buttons do not overlap',
+      )
+      assert.equal(await checkButton.evaluate(element => element.scrollHeight <= element.clientHeight), true)
+      await page.screenshot({ path: join(out, 'update-ja-candidate-narrow.png') })
+      await page.getByRole('switch', { name: 'ガラスの質感', exact: true }).click()
+      await storedEnabled(true)
+      await page.evaluate(() => window.__GLASSUI_TEST_LOCALE__.set('zh'))
+      await page.getByRole('heading', { name: 'Glass UI插件', exact: true }).waitFor()
+      await page.screenshot({ path: join(out, 'update-zh-narrow.png') })
+      await page.evaluate(() => window.__GLASSUI_TEST_LOCALE__.set('en'))
+      assert.deepEqual(errors, [])
     } finally {
       await close()
     }
@@ -406,6 +511,10 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
       await page.reload()
       await page.waitForFunction(() => '__DSH_GLASSUI_DEBUG__' in window)
       await page.waitForFunction(() => document.querySelector('[data-glassui-owned="wallpaper"]') !== null)
+      // The engine starts before DSH has finished workspace/model bootstrap.
+      // Wait for those real UI seats before opening an overlay after reload.
+      await page.getByText('Default workspace', { exact: true }).first().waitFor()
+      await page.getByText('DeepSeek-V4.1-Flash', { exact: true }).last().waitFor()
       await openSettings(page)
       await page.getByRole('radio', { name: 'Automatic' }).click()
       await page.waitForFunction(() => document.querySelector('[data-glassui-owned="wallpaper"]') === null)

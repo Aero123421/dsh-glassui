@@ -16,9 +16,11 @@ and steps to reproduce. You can expect an acknowledgement within a week.
 Glass UI runs inside DSH Web with the same privileges as any DSH plugin. It is
 designed to keep that footprint small:
 
-- **No network access.** The plugin makes no requests of its own. Wallpapers are
-  inline SVG; a custom wallpaper URL, if you set one, is loaded by the browser
-  as a CSS image.
+- **User-requested update access.** Update checks and installs contact the fixed
+  GitHub repository and approved asset redirects, with time and size limits.
+  Package identity, compatibility and SHA-256 are checked before handing an
+  install to DSH. Wallpapers are inline SVG; a custom image URL is loaded by
+  the browser as CSS. There is no telemetry.
 - **No code from settings.** Settings are validated on both halves. A custom
   wallpaper URL must be `https:`/`http:`, a same-origin path, or a base64
   _raster_ image `data:` URL (SVG is rejected because it can reference other

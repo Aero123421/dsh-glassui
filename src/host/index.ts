@@ -3,9 +3,10 @@
  *
  * Declares the live settings (DSH stores them in the profile and serves them to
  * the settings page and the Plugins page) and contributes the boot rows to every
- * Web page render. The Host never touches DSH files, routes or sessions.
+ * Web page render. Update routes optionally delegate verified releases to DSH’s plugin manager.
  */
 import z from '@deepseek-ai/schemastery'
+import { applyUpdateRoutes, type UpdateHost } from './update-routes.ts'
 import {
   CODE_BLOCK_STYLES,
   DEFAULT_SETTINGS,
@@ -79,7 +80,7 @@ export const Config = z.object({
 })
 
 /** Event map entry of DSH's Web server used here. */
-interface HostContext {
+interface HostContext extends UpdateHost {
   on(event: 'webserver/index-inject', listener: (table: BootRow[]) => void): () => void
 }
 
@@ -110,6 +111,7 @@ export function readSettings(config: Config): GlassSettings {
  * @param config - live settings.
  */
 export function apply(ctx: HostContext, config: Config): void {
+  applyUpdateRoutes(ctx, () => readSettings(config), __GLASSUI_VERSION__)
   ctx.on('webserver/index-inject', table => {
     table.push(...bootRows(readSettings(config), __GLASSUI_VERSION__))
   })

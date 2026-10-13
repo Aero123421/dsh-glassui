@@ -585,3 +585,49 @@
     transition: none;
   }
 }
+
+.glassui-page .glassui-settings-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-inline-size: 0;
+}
+.glassui-page .glassui-update p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.glassui-page .glassui-update__notes {
+  white-space: pre-wrap;
+  max-height: 180px;
+  overflow: auto;
+}
+.glassui-page .glassui-update .glassui-actions {
+  flex-wrap: wrap;
+}
+.glassui-page .glassui-update a {
+  color: var(--dsw-alias-label-primary);
+  text-decoration: underline;
+}
+
+.glassui-page .glassui-update .glassui-card {
+  gap: 10px;
+}
+.glassui-page .glassui-update .glassui-card > * + * {
+  border-top: 0;
+}
+.glassui-page .glassui-update .glassui-note {
+  padding: 0;
+}
+.glassui-page .glassui-update .glassui-button {
+  height: auto;
+  min-height: 32px;
+  max-width: 100%;
+  padding: 6px 10px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 20px;
+  flex-shrink: 0;
+}

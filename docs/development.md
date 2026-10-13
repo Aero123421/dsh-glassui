@@ -58,10 +58,22 @@ In the browser console, `__DSH_GLASSUI_DEBUG__.diagnostics()` shows what the eng
 - **Own namespace only.** Attributes `data-glassui-*`, properties `--glassui-*`, elements `[data-glassui-owned]`. `GlassEngine.stop()` must leave the page exactly as DSH rendered it; the tests compare against a page without the plugin.
 - **Under, not over.** No `!important`; explicit customizations (inline token overrides, other plugins' styles) win.
 - **Reads before writes, under a budget.** Engine work is batched per animation frame.
-- **No runtime dependencies, no install scripts, no network.**
+- **No runtime dependencies or install scripts.** Host network access is limited to user-requested checks and installs from the fixed GitHub release source.
 
 ## Releasing
 
 1. Update `version` in `package.json`, its lockfile and `CHANGELOG.md`, then run `npm run build` and commit `dist/` so GitHub installs contain the compiled plugin.
 2. If DSH released a new version, run `DSH_VERSION=<version> npm run test:e2e` and adjust `peerDependencies` and `glassui.e2e.dsh`.
 3. Merge, then push a tag `v<version>`. The release workflow verifies, runs the E2E suite, packs the tarball and publishes a GitHub Release with `SHA256SUMS` and a build provenance attestation. Nothing is published to npm.
+
+## Plugin update ownership
+
+The update helper is internal JavaScript with a typed `.d.mts` interface; TypeScript and the official `PluginInstallRequestId` declaration keep the Host/Client calls typed. It is bundled into the existing entries, with no new SDK or runtime dependency. SemVer is a build dependency bundled into the Host. Update states and requests never recreate the glass engine.
+
+The Host fixes the repository, package, stable channel, asset names and profile-owned journal/cache. It checks DSH peer ranges with prereleases included, bounded HTTPS downloads, SHA-256 and the actual archive manifest. GitHub installs keep an explicit release tag; standard release filenames classify the existing tarball route without claiming that an old filename proves authenticity. Development directories, symlinks and custom sources remain manual.
+
+The settings controller drains debounced and in-flight writes before admitting an update, blocks editing during settlement, and refuses rejected/local-only saves. The Host compares the submitted settings with live settings before admission and again immediately before installer invocation. No shared theme, wallpaper, font or exclusion settings are reset.
+
+Each Client persists a UUID before its first request. The Host journals it before delegating installation to DSH, preserves `enabled`, and does not approve build scripts. Reconnects use that ID; transport ambiguity after manager invocation stays unknown. Only authoritative rejection clears an unadmitted Client ID. `waitForInstall(null)` is not success; installed and running versions must both match to confirm application. Result journals exclude raw installer output, diagnostics and settings. A journal interrupted before installer invocation can be retried; a forgotten admitted install cannot be resent.
+
+Use `GLASSUI_E2E_ARTIFACT_DIR=/tmp/glassui-evidence` to keep native screenshots/logs outside the checkout. The E2E locale fixture is test-only: it adds Japanese and a foreign font style, awaits real locale-form writes, and leaves production dictionaries/fonts unchanged. Reload tests wait for DSH workspace/model bootstrap before opening the settings overlay.

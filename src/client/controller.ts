@@ -35,6 +35,7 @@ export interface ControllerState {
   settings: GlassSettings
   save: SaveState
   diagnostics: Diagnostics
+  updating: boolean
 }
 
 /** Quiet time before a burst of edits to one field (dragging the slider) is written. */
@@ -49,6 +50,8 @@ export class GlassController {
   private form: SettingsForm | undefined
   private detachForm: (() => void) | undefined
   private writing = false
+  private writeTask: Promise<void> | undefined
+  private updateLock = false
   private failed = false
   private disposed = false
   private save: SaveState = 'loading'
@@ -62,7 +65,7 @@ export class GlassController {
   constructor(engine: EngineHandle, initial: GlassSettings = { ...DEFAULT_SETTINGS }) {
     this.engine = engine
     this.stored = initial
-    this.state = { settings: initial, save: this.save, diagnostics: engine.diagnostics() }
+    this.state = { settings: initial, save: this.save, updating: this.updateLock, diagnostics: engine.diagnostics() }
     engine.apply(initial)
   }
 
@@ -116,7 +119,7 @@ export class GlassController {
    * @param value - new value; normalized like any other input.
    */
   update<K extends keyof GlassSettings>(field: K, value: GlassSettings[K]): void {
-    if (this.disposed) return
+    if (this.disposed || this.updateLock) return
     const next = normalizeSettings({ ...this.state.settings, [field]: value })
     // Identity distinguishes a newer edit even when its value repeats an older one.
     this.pending.set(field, { value: next[field] })
@@ -140,7 +143,37 @@ export class GlassController {
     this.emit()
   }
 
-  private async flush(): Promise<void> {
+  /** Flush debounced writes and hold editing until the update request settles. */
+  async settleForUpdate(): Promise<() => void> {
+    if (this.disposed || this.updateLock) throw new Error('settings')
+    this.updateLock = true
+    this.recompute()
+    const release = (): void => {
+      this.updateLock = false
+      this.recompute()
+    }
+    try {
+      for (const timer of this.timers.values()) clearTimeout(timer)
+      this.timers.clear()
+      await this.flush()
+      if (!this.isActive() || this.failed || this.pending.size > 0 || this.save !== 'saved') throw new Error('settings')
+      return release
+    } catch (error) {
+      release()
+      throw error
+    }
+  }
+
+  private flush(): Promise<void> {
+    this.writeTask ??= Promise.resolve()
+      .then(() => this.writeReady())
+      .finally(() => {
+        this.writeTask = undefined
+      })
+    return this.writeTask
+  }
+
+  private async writeReady(): Promise<void> {
     if (this.writing || this.disposed) return
     this.writing = true
     try {
@@ -192,8 +225,8 @@ export class GlassController {
     })
     const changed = !sameSettings(settings, this.state.settings)
     if (changed) this.engine.apply(settings)
-    if (!changed && this.save === this.state.save) return
-    this.state = { settings, save: this.save, diagnostics: this.engine.diagnostics() }
+    if (!changed && this.save === this.state.save && this.updateLock === this.state.updating) return
+    this.state = { settings, save: this.save, updating: this.updateLock, diagnostics: this.engine.diagnostics() }
     this.emit()
   }
 
