@@ -448,7 +448,7 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
           },
         })
       })
-      const range = page.locator('.glassui-range')
+      const range = page.getByRole('slider', { name: 'Transparency', exact: true })
       await page.getByRole('button', { name: 'Check plugin update', exact: true }).click()
       await page.getByRole('button', { name: 'Update plugin', exact: true }).waitFor()
       await range.fill('64')
