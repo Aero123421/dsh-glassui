@@ -217,3 +217,41 @@ test('late begin response from previous profile cannot overwrite current receipt
   assert.equal(saved.getItem('dsh-glassui:update:' + other), undefined)
   controller.dispose()
 })
+
+test('authoritative active server operation replaces old browser receipt', async () => {
+  const saved = storage(),
+    calls = [],
+    old = crypto.randomUUID(),
+    current = crypto.randomUUID()
+  saved.setItem('dsh-glassui:update:' + profileKey, old)
+  const controller = new UpdateController(
+    {
+      rpc: {
+        call: async (_base, method, payload) => {
+          calls.push({ method, payload })
+          return {
+            ok: true,
+            value: {
+              status: 'installing',
+              profileKey,
+              requestId: method.endsWith('status') ? current : payload.requestId,
+            },
+          }
+        },
+      },
+    },
+    async () => () => {},
+    () => DEFAULT_SETTINGS,
+    saved,
+  )
+  await controller.load()
+  assert.equal(controller.requestId, current)
+  assert.equal(calls.at(-1).payload.requestId, current)
+  assert.equal(controller.state.status, 'installing')
+  assert.equal(saved.getItem('dsh-glassui:update:' + profileKey), current)
+  assert.equal(
+    calls.some(call => call.method.endsWith('begin')),
+    false,
+  )
+  controller.dispose()
+})

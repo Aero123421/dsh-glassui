@@ -70,6 +70,7 @@ async function fixture(t, overrides = {}) {
     waitForInstall: async () => null,
     installBundle: async (...args) => {
       calls.push(args)
+      bundle.version = version
       return {
         changed: true,
         application: 'restart-required',
@@ -150,10 +151,11 @@ test('bounded retrieval refuses hostile redirects, streaming oversize and networ
 })
 test('manager results distinguish application, failure, cancellation, override and unknown', () => {
   const result = { bundle: PACKAGE, version, application: 'applied', changed: true }
-  assert.equal(resultState(result, version, version), 'applied')
-  assert.equal(resultState(result, version, '0.5.0'), 'unknown')
+  const installed = { name: PACKAGE, version, installed: true }
+  assert.equal(resultState(result, version, version, installed), 'applied')
+  assert.equal(resultState(result, version, '0.5.0', installed), 'unknown')
   for (const application of ['failed', 'cancelled', 'overridden', 'restart-required'])
-    assert.equal(resultState({ ...result, application }, version, version), application)
+    assert.equal(resultState({ ...result, application }, version, version, installed), application)
   assert.equal(resultState({ ...result, packageResult: { exitCode: 0, timedOut: true } }, version, version), 'failed')
   assert.equal(resultState(null, version, version), 'unknown')
 })
@@ -175,6 +177,7 @@ test('single pinned install preserves disabled selection; journal supports recon
     version,
     runtimeVersion: async () => '0.2.1-alpha.2',
   })
+  bundle.version = '0.5.0'
   assert.equal((await restarted.reconcile(requestId)).status, 'unknown')
   bundle.version = version
   assert.equal((await restarted.reconcile(requestId)).status, 'applied')
@@ -322,8 +325,8 @@ test('disposal or active login during the awaited journal save cannot start mana
     })
     const { updater, calls } = await fixture(t, { isBusy: () => busy })
     const save = updater.save.bind(updater)
-    updater.save = async operation => {
-      await save(operation)
+    updater.save = async (operation, claim) => {
+      await save(operation, claim)
       if (operation.status === 'installing') {
         reached()
         await gate
@@ -346,4 +349,47 @@ test('Glass range admits the supported DSH prerelease and refuses unsupported ru
   assert.equal(checkCompatibility(ranged, candidate, '0.2.1-alpha.2'), '0.2.1-alpha.2')
   assert.throws(() => checkCompatibility(ranged, candidate, '0.2.0-rc.1'), /incompatible/)
   assert.throws(() => checkCompatibility(ranged, candidate, '0.3.0'), /incompatible/)
+})
+
+test('external upgrade during final receipt save cannot be downgraded', async t => {
+  const { updater, bundle, calls } = await fixture(t)
+  const save = updater.save.bind(updater)
+  updater.save = async (operation, claim) => {
+    await save(operation, claim)
+    if (operation.status === 'installing') bundle.version = '0.7.0'
+  }
+  await updater.check()
+  const id = randomUUID()
+  await updater.begin('7', id, updater.base().profileKey)
+  await settle(updater)
+  assert.equal(calls.length, 0)
+  assert.equal((await updater.reconcile(id)).reason, 'stale-candidate')
+})
+test('nominal success requires actual installed version before restart instruction', async t => {
+  const { updater, manager, bundle } = await fixture(t)
+  manager.installBundle = async () => ({ bundle: PACKAGE, version, application: 'restart-required' })
+  await updater.check()
+  const id = randomUUID()
+  await updater.begin('7', id, updater.base().profileKey)
+  await settle(updater)
+  assert.equal((await updater.reconcile(id)).status, 'unknown')
+  bundle.version = version
+  assert.equal((await updater.reconcile(id)).status, 'restart-required')
+  bundle.error = { code: 'not-bundle' }
+  assert.equal((await updater.reconcile(id)).status, 'unknown')
+})
+test('updating old receipt cannot take ownership of latest operation', async t => {
+  const { updater } = await fixture(t)
+  const first = { requestId: randomUUID(), version, status: 'failed' }
+  const second = { requestId: randomUUID(), version, status: 'unknown' }
+  await updater.save(first, true)
+  await updater.save(second, true)
+  await updater.save(first)
+  assert.equal(await updater.lastOperation(), second.requestId)
+})
+test('cancellation outcome survives nonzero package exit', () => {
+  assert.equal(
+    resultState({ application: 'cancelled', packageResult: { exitCode: 130 } }, version, version),
+    'cancelled',
+  )
 })

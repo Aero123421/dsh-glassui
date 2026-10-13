@@ -76,6 +76,7 @@ export class UpdateController {
       const status = await this.call('status')
       if (this.closed || generation !== this.generation) return
       this.selectProfile(status.profileKey)
+      if (status.requestId) this.requestId = status.requestId
       const state = this.requestId
         ? await this.call('reconcile', { requestId: this.requestId, profileKey: this.profileKey })
         : status

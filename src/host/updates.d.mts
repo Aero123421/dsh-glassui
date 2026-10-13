@@ -73,4 +73,9 @@ export function sourceKind(source: unknown, cacheDir?: string, installedVersion?
 export function releaseCandidate(release: unknown, current: string): Candidate | null
 export function checkCompatibility(packageJson: unknown, candidate: Pick<Candidate, 'version'>, runtime: string): string
 export function packageManifest(bytes: Buffer): unknown
-export function resultState(result: ChangeResult | null, expected: string, runtime: string): Status
+export function resultState(
+  result: ChangeResult | null,
+  expected: string,
+  runtime: string,
+  installed?: BundleInfo,
+): Status

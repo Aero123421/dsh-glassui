@@ -2326,12 +2326,13 @@ function safeResult(result) {
     } : {}
   };
 }
-function resultState(result, expected, runtime) {
+function resultState(result, expected, runtime, installed) {
   if (!result) return "unknown";
+  if (["cancelled", "overridden"].includes(result.application)) return result.application;
   if (result.error || result.application === "failed" || result.packageResult && (result.packageResult.exitCode !== 0 || result.packageResult.timedOut))
     return "failed";
-  if (["cancelled", "overridden"].includes(result.application)) return result.application;
-  if (result.bundle !== PACKAGE || result.version !== expected) return "unknown";
+  if (result.bundle !== PACKAGE || result.version !== expected || !installed?.installed || installed.version !== expected || installed.error || installed.readOnlyReason)
+    return "unknown";
   if (result.application === "restart-required") return "restart-required";
   return result.application === "applied" && runtime === expected ? "applied" : "unknown";
 }
@@ -2460,7 +2461,7 @@ var PluginUpdates = class {
     this.running = { requestId, version: candidate.version, status: "preparing" };
     try {
       await this.privateDir();
-      await this.save(this.running);
+      await this.save(this.running, true);
     } catch (error) {
       this.running = null;
       throw error;
@@ -2470,11 +2471,12 @@ var PluginUpdates = class {
     });
     return { ...this.base(), ...this.running };
   }
-  async save(operation) {
+  async save(operation, claim = false) {
     const directory = await this.privateDir(), file = join(directory, `${operation.requestId}.json`);
     const temp = join(directory, `${operation.requestId}.${randomUUID2()}.tmp`);
     await writeFile(temp, JSON.stringify(operation), { flag: "wx", mode: 384 });
     await rename(temp, file);
+    if (!claim) return;
     const index = join(directory, `${randomUUID2()}.tmp`);
     await writeFile(index, JSON.stringify({ requestId: operation.requestId }), { flag: "wx", mode: 384 });
     await rename(index, join(directory, "latest.json"));
@@ -2505,14 +2507,18 @@ var PluginUpdates = class {
       operation.status = "installing";
       await this.save(operation);
       if (this.closed || this.isBusy()) throw new Error("busy");
+      const final = await this.capability();
+      if (this.closed || this.isBusy() || final.bundle.source !== before.bundle.source) throw new Error("busy");
+      if (compareVersions(candidate.version, final.bundle.version) <= 0) throw new Error("stale-candidate");
       managerInvoked = true;
-      const result = await latest.manager.installBundle(spec, {
-        enabled: latest.bundle.enabled,
+      const result = await final.manager.installBundle(spec, {
+        enabled: final.bundle.enabled,
         requestId: operation.requestId,
         saveExact: true
       });
-      operation.status = resultState(result, operation.version, this.version);
       operation.result = safeResult(result);
+      const installed = (await final.manager.listBundles()).find((item) => item.name === PACKAGE);
+      operation.status = resultState(result, operation.version, this.version, installed);
     } catch (error) {
       operation.status = managerInvoked ? "unknown" : "failed";
       operation.reason = reasonOf(error);
@@ -2544,12 +2550,11 @@ var PluginUpdates = class {
       const result = manager && await manager.waitForInstall(requestId);
       if (result) {
         operation.result = safeResult(result);
-        operation.status = resultState(result, operation.version, this.version);
-        await this.save(operation);
       } else operation.status = "unknown";
     }
     const bundle = (await this.manager()?.listBundles())?.find((item) => item.name === PACKAGE);
     const installed = bundle?.version;
+    if (operation.result) operation.status = resultState(operation.result, operation.version, this.version, bundle);
     if (["installing", "restart-required", "unknown", "applied"].includes(operation.status) && this.version === operation.version) {
       operation.status = bundle?.installed && !bundle.error && !bundle.readOnlyReason && installed === operation.version ? "applied" : "unknown";
     }
