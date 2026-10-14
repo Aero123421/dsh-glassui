@@ -2338,6 +2338,32 @@ function resultState(result, expected, runtime, installed) {
   if (result.application === "restart-required") return "restart-required";
   return result.application === "applied" && runtime === expected ? "applied" : "unknown";
 }
+var retainedInstalls = /* @__PURE__ */ new Set();
+function retainInstall(promise) {
+  retainedInstalls.add(promise);
+  const release = () => {
+    retainedInstalls.delete(promise);
+  };
+  void promise.then(release, release);
+  return promise;
+}
+function removalAccepted(result) {
+  return Boolean(
+    result && !result.error && (result.application === "applied" || result.application === "restart-required")
+  );
+}
+async function installRelease(manager, spec, options) {
+  const installed = await manager.installBundle(spec, options);
+  if (installed?.error?.code !== "already-installed" || typeof manager.removeBundle !== "function") {
+    return { result: installed, removed: false };
+  }
+  const removed = await manager.removeBundle(PACKAGE);
+  if (removed?.error?.code === "stop-profile") {
+    return { result: await manager.installBundle(spec, options), removed: false };
+  }
+  if (!removalAccepted(removed)) return { result: removed ?? installed, removed: false };
+  return { result: await manager.installBundle(spec, options), removed: true };
+}
 var PluginUpdates = class {
   constructor({ manager, profileDir, runtimeVersion, isBusy = () => false, fetcher = fetch, version }) {
     Object.assign(this, { manager, profileDir, runtimeVersion, isBusy, fetcher, version });
@@ -2513,14 +2539,22 @@ var PluginUpdates = class {
       if (this.closed || this.isBusy() || final.bundle.source !== before.bundle.source) throw new Error("busy");
       if (compareVersions(candidate.version, final.bundle.version) <= 0) throw new Error("stale-candidate");
       managerInvoked = true;
-      const result = await final.manager.installBundle(spec, {
-        enabled: final.bundle.enabled,
-        requestId: operation.requestId,
-        saveExact: true
-      });
-      operation.result = safeResult(result);
-      const installed = (await final.manager.listBundles()).find((item) => item.name === PACKAGE);
-      operation.status = resultState(result, operation.version, this.version, installed);
+      const manager = final.manager;
+      const outcome = await retainInstall(
+        installRelease(manager, spec, {
+          enabled: final.bundle.enabled,
+          requestId: operation.requestId,
+          saveExact: true
+        })
+      );
+      operation.result = safeResult(outcome.result);
+      if (outcome.removed) operation.reinstall = true;
+      const installed = (await manager.listBundles()).find((item) => item.name === PACKAGE);
+      operation.status = resultState(outcome.result, operation.version, this.version, installed);
+      if (operation.reinstall && operation.status === "failed") {
+        operation.status = "unknown";
+        operation.reason = "reinstall";
+      }
     } catch (error) {
       operation.status = managerInvoked ? "unknown" : "failed";
       operation.reason = reasonOf(error);
@@ -2557,9 +2591,14 @@ var PluginUpdates = class {
     const bundle = (await this.manager()?.listBundles())?.find((item) => item.name === PACKAGE);
     const installed = bundle?.version;
     if (operation.result) operation.status = resultState(operation.result, operation.version, this.version, bundle);
+    if (operation.reinstall && operation.status === "failed") {
+      operation.status = "unknown";
+      operation.reason = "reinstall";
+    }
     if (["installing", "restart-required", "unknown", "applied"].includes(operation.status) && this.version === operation.version) {
       operation.status = bundle?.installed && !bundle.error && !bundle.readOnlyReason && installed === operation.version ? "applied" : "unknown";
     }
+    if (operation.status === "applied" && operation.reason === "reinstall") delete operation.reason;
     return { ...this.base(), ...operation, installedVersion: installed };
   }
   dispose() {

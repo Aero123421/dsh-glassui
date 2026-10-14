@@ -265,6 +265,50 @@ export function resultState(result, expected, runtime, installed) {
   return result.application === 'applied' && runtime === expected ? 'applied' : 'unknown'
 }
 
+// Keeps the remove-then-install chain alive if HMR disposes this plugin mid-removal.
+const retainedInstalls = new Set()
+function retainInstall(promise) {
+  retainedInstalls.add(promise)
+  const release = () => {
+    retainedInstalls.delete(promise)
+  }
+  // Swallow the derived promise so a rejected install is handled by its awaiter only.
+  void promise.then(release, release)
+  return promise
+}
+function removalAccepted(result) {
+  return Boolean(
+    result && !result.error && (result.application === 'applied' || result.application === 'restart-required'),
+  )
+}
+
+/**
+ * Install one verified release.
+ * With HMR, DSH 0.2.1-alpha.3 returns `already-installed` from `installBundle`
+ * before pnpm when the spec names an installed package, and changes no profile
+ * file. The Plugins page (`ui-plugin-manager`, not the package being updated)
+ * calls `removeBundle`, then `installBundle`. This bundle is that package, so
+ * removal stops it before `removeBundle` resolves. The follow-up install is
+ * therefore chained on the manager object the caller captured, not on a second
+ * lookup after disposal. Without HMR, removal of a running bundle returns
+ * `stop-profile` and leaves it installed; installing over it reports
+ * `restart-required`, including on 0.2.1-alpha.2. Any other removal failure is
+ * not followed by an install. `removed` means the package was removed, so a
+ * failed reinstall is a partial change.
+ */
+export async function installRelease(manager, spec, options) {
+  const installed = await manager.installBundle(spec, options)
+  if (installed?.error?.code !== 'already-installed' || typeof manager.removeBundle !== 'function') {
+    return { result: installed, removed: false }
+  }
+  const removed = await manager.removeBundle(PACKAGE)
+  if (removed?.error?.code === 'stop-profile') {
+    return { result: await manager.installBundle(spec, options), removed: false }
+  }
+  if (!removalAccepted(removed)) return { result: removed ?? installed, removed: false }
+  return { result: await manager.installBundle(spec, options), removed: true }
+}
+
 /** Optional manager is resolved for every operation; the glass material never depends on it. */
 export class PluginUpdates {
   constructor({ manager, profileDir, runtimeVersion, isBusy = () => false, fetcher = fetch, version }) {
@@ -467,14 +511,22 @@ export class PluginUpdates {
       if (this.closed || this.isBusy() || final.bundle.source !== before.bundle.source) throw new Error('busy')
       if (compareVersions(candidate.version, final.bundle.version) <= 0) throw new Error('stale-candidate')
       managerInvoked = true
-      const result = await final.manager.installBundle(spec, {
-        enabled: final.bundle.enabled,
-        requestId: operation.requestId,
-        saveExact: true,
-      })
-      operation.result = safeResult(result)
-      const installed = (await final.manager.listBundles()).find(item => item.name === PACKAGE)
-      operation.status = resultState(result, operation.version, this.version, installed)
+      const manager = final.manager
+      const outcome = await retainInstall(
+        installRelease(manager, spec, {
+          enabled: final.bundle.enabled,
+          requestId: operation.requestId,
+          saveExact: true,
+        }),
+      )
+      operation.result = safeResult(outcome.result)
+      if (outcome.removed) operation.reinstall = true
+      const installed = (await manager.listBundles()).find(item => item.name === PACKAGE)
+      operation.status = resultState(outcome.result, operation.version, this.version, installed)
+      if (operation.reinstall && operation.status === 'failed') {
+        operation.status = 'unknown'
+        operation.reason = 'reinstall'
+      }
     } catch (error) {
       operation.status = managerInvoked ? 'unknown' : 'failed'
       operation.reason = reasonOf(error)
@@ -513,6 +565,10 @@ export class PluginUpdates {
     const bundle = (await this.manager()?.listBundles())?.find(item => item.name === PACKAGE)
     const installed = bundle?.version
     if (operation.result) operation.status = resultState(operation.result, operation.version, this.version, bundle)
+    if (operation.reinstall && operation.status === 'failed') {
+      operation.status = 'unknown'
+      operation.reason = 'reinstall'
+    }
     if (
       ['installing', 'restart-required', 'unknown', 'applied'].includes(operation.status) &&
       this.version === operation.version
@@ -522,6 +578,7 @@ export class PluginUpdates {
           ? 'applied'
           : 'unknown'
     }
+    if (operation.status === 'applied' && operation.reason === 'reinstall') delete operation.reason
     return { ...this.base(), ...operation, installedVersion: installed }
   }
   dispose() {

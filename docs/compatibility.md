@@ -4,13 +4,14 @@ Glass UI is built to keep working when DSH changes. This page describes what it 
 
 ## Supported DSH versions
 
-`peerDependencies["@deepseek-ai/dsh"]` is the supported range — currently `>=0.2.0-rc.2 <0.3.0`. DSH refuses to install a plugin outside that range (it offers an explicit, per-version exemption instead). The range is widened only after the E2E suite has passed on the new release.
+`peerDependencies["@deepseek-ai/dsh"]` is the supported range — currently `>=0.2.0-rc.2 <0.3.0`. At boot, DSH skips a plugin when a `@deepseek-ai/dsh` or `@deepseek-ai/dsh-*` peer range does not admit the running version. That comparison includes prereleases, so this range admits 0.2.1-alpha.3 and later 0.2.x prereleases (0.2.2-alpha.1, 0.2.9-rc.1, and so on). It does not admit 0.3.0 or newer. A 0.3.0 prerelease is still below 0.3.0, so the same rule admits it until the range is narrowed. DSH refuses to install a plugin outside the range and offers an explicit, per-version exemption instead. The range is widened only after the E2E suite has passed on the new release.
 
-| DSH                   | Status                                                                          |
-| --------------------- | ------------------------------------------------------------------------------- |
-| 0.2.1-alpha.2         | Tested on every pull request (pinned in `package.json` → `glassui.e2e.dsh`).    |
-| 0.2.0-rc.2 (`latest`) | Tested on every pull request and release.                                       |
-| newest `alpha`        | Tested nightly; failures open the question of a new release, they do not block. |
+| DSH                   | Status                                                                                                                    |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| 0.2.1-alpha.2         | Tested on every pull request (pinned in `package.json` → `glassui.e2e.dsh`).                                              |
+| 0.2.1-alpha.3         | Admitted by the peer range. The `alpha` dist-tag currently resolves to this release.                                      |
+| 0.2.0-rc.2 (`latest`) | Tested on every pull request and release.                                                                                 |
+| newest `alpha`        | Token and contract check on every pull request (`npm run compat -- --install alpha`). Nightly browser E2E does not block. |
 
 ## What the plugin depends on
 
@@ -36,7 +37,7 @@ npm run compat -- --install 0.2.1-alpha.3 --json
 DSH_VERSION=alpha npm run test:e2e
 ```
 
-Both run nightly in GitHub Actions against the pinned version, `latest` and `alpha`.
+Pull requests run the token and contract check against 0.2.0-rc.2, 0.2.1-alpha.2, and the `alpha` dist-tag. That check also requires the plugin's DSH peer range to admit the installed runtime, using the same prerelease rule as boot. Nightly browser E2E runs the pinned version, `latest`, and `alpha`; a failure on a dist-tag does not block.
 
 ## When DSH changes
 

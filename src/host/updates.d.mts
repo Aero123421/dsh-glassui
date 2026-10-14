@@ -2,6 +2,8 @@ import type { BundleInfo, ChangeResult, InstallBundleOptions } from '@deepseek-a
 export interface Manager {
   listBundles(): Promise<BundleInfo[]>
   installBundle(spec: string, options: InstallBundleOptions): Promise<ChangeResult>
+  /** Present when the host can remove a bundle. Required to recover from `already-installed`. */
+  removeBundle?(name: string): Promise<ChangeResult>
   waitForInstall(id: NonNullable<InstallBundleOptions['requestId']>): Promise<ChangeResult | null>
 }
 export type Status =
@@ -79,3 +81,8 @@ export function resultState(
   runtime: string,
   installed?: BundleInfo,
 ): Status
+export function installRelease(
+  manager: Manager,
+  spec: string,
+  options: InstallBundleOptions,
+): Promise<{ result: ChangeResult; removed: boolean }>

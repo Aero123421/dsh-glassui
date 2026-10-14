@@ -25,7 +25,7 @@
 
 ## Install
 
-Requires DSH `>=0.2.0-rc.2 <0.3.0`. Tested with 0.2.0-rc.2 and 0.2.1-alpha.2.
+Requires DSH `>=0.2.0-rc.2 <0.3.0`. DSH admits prereleases in that range, including 0.2.1-alpha.3 and later 0.2.x prereleases. Tested with 0.2.0-rc.2 and 0.2.1-alpha.2.
 
 1. In DSH Web, open **Plugins → Add plugin** and enter `github:Aero123421/dsh-glassui#v0.2.2`.
 2. Or install from a terminal:
@@ -70,6 +70,8 @@ _Live_ wallpapers move a few large layers on the compositor; nothing runs on the
 Settings → Glass UI shows the running version and **Check plugin update**. Checking and installing are separate actions. The updater flushes pending settings writes before installation and stops on refused saves or settings changed in another window. It keeps wallpaper, tint, exclusions and the bundle’s enabled state. Checking does not recreate the glass engine, and works with the material off.
 
 The Host checks a fixed GitHub stable release, DSH peer ranges, bounded downloads, SHA-256 and the archive’s package identity/version before delegating to DSH’s manager. GitHub installations advance to an explicit release tag; release tarballs remain tarballs in the profile’s `.dsh-glassui-updates/` directory. Custom development paths, missing managers and read-only profiles use the linked manual update. Pins are never changed to a floating latest spec; build scripts are not automatically approved.
+
+On DSH 0.2.1-alpha.3 with HMR, `installBundle` of an already installed package fails with `already-installed` and does not change the profile. The updater then uses the same order as **Plugins → Update**: remove this plugin, then install the release, keeping the previous on/off state. Without HMR, including 0.2.1-alpha.2, removal of a running plugin is refused (`stop-profile`) and the updater installs over the current package, which waits for a restart. If the new install does not finish after a removal, the result stays unknown.
 
 A saved operation ID reconciles a lost response without resending installation. Unknown results remain unknown. The UI confirms both installed and running versions before reporting success, and asks you to restart after current work when needed. Keep staged tarballs while the profile references them.
 

@@ -6,6 +6,10 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+- DSH 0.2.1-alpha.3 で HMR が有効なとき、導入済みパッケージへの `installBundle` は `already-installed` で失敗し、profile は変わりません。自己更新は、その拒否のあとだけ公式のプラグイン更新と同じ順で `removeBundle` してから入れ直し、ON/OFF を維持します。HMR がない 0.2.1-alpha.2 では、これまでどおり上書き導入して再起動待ちになります。削除が拒否された場合は再導入しません。削除したあと新しい版の導入が終わらなければ、成功にせず結果不明にします。
+- `@deepseek-ai/dsh` の peer 範囲 `>=0.2.0-rc.2 <0.3.0` は変更していません。DSH の起動時チェックは prerelease を含むため、0.2.1-alpha.3 とそれ以降の 0.2.x prerelease を対象のままです。
+- 互換チェックを pull request の CI で、固定版に加えて npm の `alpha` dist-tag に対しても実行します。
+
 ## [0.2.2] - 2026-10-13
 
 - インラインコードの背景を明暗テーマに馴染ませ、独立した不透明度設定（既定72）と文章プレビューを追加。英語・日本語・簡体字中国語、設定保存、コントラスト指定、除外とテーマ上書きに対応します。
