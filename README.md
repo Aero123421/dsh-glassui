@@ -25,7 +25,7 @@
 
 ## Install
 
-Requires DSH `>=0.2.0-rc.2 <0.3.0`. DSH admits prereleases in that range, including 0.2.1-alpha.3 and later 0.2.x prereleases. Tested with 0.2.0-rc.2 and 0.2.1-alpha.2.
+Requires DSH `>=0.2.0-rc.2 <0.3.0`. DSH admits prereleases in that range, including 0.2.1-alpha.3 and later 0.2.x prereleases. Tested with 0.2.0-rc.2, 0.2.1-alpha.2, and 0.2.1-alpha.3.
 
 1. In DSH Web, open **Plugins → Add plugin** and enter `github:Aero123421/dsh-glassui#v0.2.2`.
 2. Or install from a terminal:

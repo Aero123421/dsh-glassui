@@ -9,7 +9,7 @@ Glass UI is built to keep working when DSH changes. This page describes what it 
 | DSH                   | Status                                                                                                                    |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | 0.2.1-alpha.2         | Tested on every pull request (pinned in `package.json` → `glassui.e2e.dsh`).                                              |
-| 0.2.1-alpha.3         | Admitted by the peer range. The `alpha` dist-tag currently resolves to this release.                                      |
+| 0.2.1-alpha.3         | Browser E2E passed for this change. The `alpha` dist-tag currently resolves to this release.                              |
 | 0.2.0-rc.2 (`latest`) | Tested on every pull request and release.                                                                                 |
 | newest `alpha`        | Token and contract check on every pull request (`npm run compat -- --install alpha`). Nightly browser E2E does not block. |
 
