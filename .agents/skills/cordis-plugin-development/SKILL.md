@@ -14,16 +14,16 @@ license: MIT
 
 作業内容に応じて次だけを読みます。
 
-| 作業 | 参照資料 |
-| --- | --- |
-| bundle、Host entry、Config、表示metadata | [Hostとbundle](references/host-plugin.md) |
-| 設定ページ、panel、装飾、Client artifact | [UIプラグイン](references/ui-plugin.md) |
-| MCP接続だけのbundle | [MCP](references/mcp-bundle.md) |
-| 状態、context、event、他pluginとの併用 | [拡張点と共存](references/practices.md) |
-| UI操作やagent toolの入口 | [操作と呼出し元](references/user-actions.md) |
-| GitHub、npm、Releaseでの配布 | [配布](references/distribution.md) |
-| 更新確認、自己更新、再起動、結果照合 | [更新](references/updates.md) |
-| 導入、解除、旧版からの更新の確認 | [検証](references/verification.md) |
+| 作業                                     | 参照資料                                     |
+| ---------------------------------------- | -------------------------------------------- |
+| bundle、Host entry、Config、表示metadata | [Hostとbundle](references/host-plugin.md)    |
+| 設定ページ、panel、装飾、Client artifact | [UIプラグイン](references/ui-plugin.md)      |
+| MCP接続だけのbundle                      | [MCP](references/mcp-bundle.md)              |
+| 状態、context、event、他pluginとの併用   | [拡張点と共存](references/practices.md)      |
+| UI操作やagent toolの入口                 | [操作と呼出し元](references/user-actions.md) |
+| GitHub、npm、Releaseでの配布             | [配布](references/distribution.md)           |
+| 更新確認、自己更新、再起動、結果照合     | [更新](references/updates.md)                |
+| 導入、解除、旧版からの更新の確認         | [検証](references/verification.md)           |
 
 ## 実装から確認へ
 
