@@ -29,7 +29,8 @@ async function call(routes, method, payload = {}) {
 test('optional manager leaves boot and settings working; authenticated route shape and errors are bounded', async t => {
   const { routes, dispose } = fixture()
   t.after(dispose)
-  assert.equal(routes.size, 4)
+  assert.equal(routes.size, 5)
+  assert.equal(routes.has('/api/dsh-glassui/update-restore'), true)
   const result = await call(routes, 'status')
   assert.equal(result.result.value.status, 'blocked')
   assert.equal(result.result.value.reason, 'manager-unavailable')
@@ -37,6 +38,10 @@ test('optional manager leaves boot and settings working; authenticated route sha
   const failure = await call(routes, 'begin', { settings: { tint: 'invalid' }, candidateId: 'x', requestId: 'x' })
   assert.equal(failure.result.error.code, 'dsh-glassui/invalid-request')
   assert.equal(JSON.stringify(failure).includes('invalid'), true)
+  const restore = await call(routes, 'restore', {})
+  assert.equal(restore.result.ok, false)
+  assert.equal(restore.result.error.code, 'dsh-glassui/profile')
+  assert.equal(JSON.stringify(restore).includes('restored'), false)
   const malformed = await routes
     .get('/api/dsh-glassui/update-status')
     .fetch(new Request('http://localhost', { method: 'POST', body: '{}' }))
