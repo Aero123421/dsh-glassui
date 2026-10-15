@@ -6,6 +6,10 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-10-15
+
+PR #16 の変更です。自己更新失敗時の復元（#14）と peer 上限の `-0` 境界（#15）を直し、描画コストを削減します（#8・#9 関連）。旧ドラフト PR #13 の内容も含みます。
+
 - DSH 0.2.1-alpha.3 で HMR が有効なとき、導入済みパッケージへの `installBundle` は `already-installed` で失敗し、profile は変わりません。自己更新は、その拒否のあとだけ公式のプラグイン更新と同じ順で `removeBundle` してから入れ直し、ON/OFF を維持します。HMR がない 0.2.1-alpha.2 では、これまでどおり上書き導入して再起動待ちになります。`removeBundle` が例外を投げたとき、または失敗を返したのにパッケージが実際には無いときは、一覧で確認してから削除前の spec を入れ直します。残っている場合は新しい版を入れません。`stop-profile` の上書き導入が例外で落ちたときも失敗として返します。新しい版が `failed`、`cancelled`、`overridden` で、パッケージが無いときも同じ復元をします。復元の request id は `installBundle` の前に操作記録へ保存し、再起動後の照合はその id を使います。戻した版の version が一覧と一致したときだけ `restored` です。一覧に失敗したときや版が違うときは `restored` にしません。復元が `restart-required` のときは再起動待ち（`restore-pending`）のままです。復元が `cancelled` のときは取消のままです。
 - `@deepseek-ai/dsh` の peer 範囲を `>=0.2.0-rc.2 <0.3.0-0` にしました。DSH の起動時チェックは prerelease を含むため、0.2.1-alpha.3 とそれ以降の 0.2.x prerelease は対象のまま、`0.3.0-alpha.1` のような 0.3.0 の prerelease は範囲外です。通常の node-semver（prerelease を含めない比較）では、これまでどおり `0.2.1-alpha.3` はこの範囲に入りません。空文字、`*`、`x`、`>=0` は互換性不明です。各 OR 枝には下限と上限の両方が必要で、範囲全体が実行中の系列の内側に収まっている必要があります。0.2 系では `0.2.0-rc.2` より前と `0.3.0-0` 以降を含む範囲（`<0.3.0-0`、`<=0.2.9`、`<0.2.2`、`>=0.0.0 <0.3.0-0`、`<99`、`^0`、`<0.3.0`）は互換性不明です。公開中の `>=0.2.0-rc.2 <0.3.0-0` はこの下限なので対象のままです。
 - 屈折マップは同じ RGBA のまま、canvas の `toDataURL` ではなく PNG を直接作ります。ポインターハイライトは矩形が変わらない移動では再計測せず、スクロール、リサイズ、文字の変化、属性の変化、要素のサイズ変化、フォントと画像の読み込み、表面または祖先のアニメーションでは計測し直します。文字データとすべての属性を監視し、変更前の属性値は取りません。最初のサイズ通知が計測時の枠と違うときは位置を捨てます。`document.fonts` が無い文書ではフォントイベントだけを外します。設定画面の診断は値が変わったときだけ再描画します。ぼかし半径、地図の解像度、12ステップ/秒の壁紙、屈折の有無の判定は変えていません。
@@ -90,7 +94,9 @@ Includes the fixes prepared for v0.1.1, whose release checks failed before publi
 
 Supports DSH `>=0.2.0-rc.2 <0.3.0`.
 
-[Unreleased]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.2...v0.2.3
+[0.2.2]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Aero123421/dsh-glassui/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/Aero123421/dsh-glassui/compare/v0.1.0...v0.1.2
