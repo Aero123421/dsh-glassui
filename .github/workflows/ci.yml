@@ -72,7 +72,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        dsh: ['0.2.0-rc.2', '0.2.1-alpha.2']
+        dsh: ['0.2.0-rc.2', '0.2.1-alpha.2', 'alpha']
     steps:
       - uses: actions/checkout@v7
         with:
@@ -80,4 +80,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
       - run: node scripts/compat.mjs --install "${{ matrix.dsh }}"

@@ -2,6 +2,8 @@ import type { BundleInfo, ChangeResult, InstallBundleOptions } from '@deepseek-a
 export interface Manager {
   listBundles(): Promise<BundleInfo[]>
   installBundle(spec: string, options: InstallBundleOptions): Promise<ChangeResult>
+  /** Present when the host can remove a bundle. Required to recover from `already-installed`. */
+  removeBundle?(name: string): Promise<ChangeResult>
   waitForInstall(id: NonNullable<InstallBundleOptions['requestId']>): Promise<ChangeResult | null>
 }
 export type Status =
@@ -57,11 +59,19 @@ export class PluginUpdates {
   check(): Promise<View>
   begin(id: unknown, operationId: unknown, profileKey: unknown): Promise<View>
   reconcile(requestId: unknown): Promise<View>
+  /** Install the journal's previous spec when Settings asked and reconcile offered it. */
+  restore(requestId: unknown, profileKey: unknown): Promise<View>
   dispose(): void
 }
 export const REPOSITORY: string
 export const PACKAGE: string
 export const RELEASES: string
+/** Reads of the bundle list before an unknown list is treated as not absent. */
+export const BUNDLE_LIST_ATTEMPTS: number
+/** Reinstalls recorded on the operation before automatic restore stops. Settings can still reinstall. */
+export const RESTORE_ATTEMPT_LIMIT: number
+/** Minimum gap between automatic reinstalls. */
+export const RESTORE_ATTEMPT_INTERVAL_MS: number
 export function semanticVersion(value: unknown): { numbers: bigint[]; pre?: string[] }
 export function compareVersions(left: string, right: string): number
 export function boundedFetch(
@@ -72,6 +82,7 @@ export function boundedFetch(
 export function sourceKind(source: unknown, cacheDir?: string, installedVersion?: string): 'github' | 'tarball'
 export function releaseCandidate(release: unknown, current: string): Candidate | null
 export function checkCompatibility(packageJson: unknown, candidate: Pick<Candidate, 'version'>, runtime: string): string
+export function peerRangeDecision(range: unknown, runtime: string): 'ok' | 'unknown' | 'incompatible'
 export function packageManifest(bytes: Buffer): unknown
 export function resultState(
   result: ChangeResult | null,
@@ -79,3 +90,31 @@ export function resultState(
   runtime: string,
   installed?: BundleInfo,
 ): Status
+export type RestoreState = 'ok' | 'failed' | 'pending' | 'cancelled' | 'cancelled-absent' | 'unconfirmed'
+export function installRelease(
+  manager: Manager,
+  spec: string,
+  options: InstallBundleOptions,
+  previous?: { source?: string; enabled?: boolean; version?: string },
+  hooks?: {
+    onRestoreRequest?: (requestId: string, previousVersion?: string) => void | Promise<void>
+    /** The removal is confirmed. The journal can record that this operation removed the package. */
+    onRemoved?: () => void | Promise<void>
+  },
+): Promise<{
+  result: ChangeResult
+  removed: boolean
+  removalProven?: boolean
+  restore?: RestoreState
+  restoreRequestId?: string
+}>
+export function settleRemoval(
+  operation: {
+    status?: string
+    reason?: string
+    restore?: RestoreState
+    reinstall?: boolean
+    version?: string
+  },
+  runtimeVersion?: string,
+): void

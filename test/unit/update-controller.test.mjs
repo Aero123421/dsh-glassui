@@ -255,3 +255,61 @@ test('authoritative active server operation replaces old browser receipt', async
   )
   controller.dispose()
 })
+test('restore sends only an offered previous version and keeps a refusal unsuccessful', async () => {
+  const saved = storage()
+  const calls = []
+  const controller = new UpdateController(
+    {
+      rpc: {
+        call: async (_base, method, payload) => {
+          calls.push({ method, payload })
+          if (method.endsWith('restore'))
+            return {
+              ok: true,
+              value: { status: 'failed', reason: 'restored', requestId: payload.requestId, profileKey },
+            }
+          return { ok: true, value: { status: 'unknown', reason: 'restore-offer', profileKey } }
+        },
+      },
+    },
+    async () => () => {},
+    () => DEFAULT_SETTINGS,
+    saved,
+  )
+  controller.publish({ status: 'unknown', reason: 'reinstall', profileKey })
+  await controller.restore()
+  assert.equal(calls.length, 0)
+  controller.publish({ status: 'unknown', reason: 'restore-offer', profileKey, requestId: 'req' })
+  controller.requestId = 'req'
+  await controller.restore()
+  assert.equal(calls.length, 1)
+  assert.match(calls[0].method, /update-restore$/)
+  assert.equal(calls[0].payload.requestId, 'req')
+  assert.equal(calls[0].payload.profileKey, profileKey)
+  assert.equal(controller.state.reason, 'restored')
+  controller.publish({ status: 'unknown', reason: 'restore-limit', profileKey, requestId: 'req' })
+  await controller.restore()
+  assert.equal(calls.length, 2)
+  assert.match(calls[1].method, /update-restore$/)
+  assert.equal(calls[1].payload.requestId, 'req')
+  controller.dispose()
+  const refused = new UpdateController(
+    {
+      rpc: {
+        call: async () => {
+          throw new Error('dsh-glassui/network')
+        },
+      },
+    },
+    async () => () => {},
+    () => DEFAULT_SETTINGS,
+    storage(),
+  )
+  refused.publish({ status: 'unknown', reason: 'restore-offer', profileKey })
+  refused.requestId = 'req'
+  await refused.restore()
+  assert.equal(refused.state.status, 'unknown')
+  assert.equal(refused.state.reason, 'network')
+  assert.notEqual(refused.state.reason, 'restored')
+  refused.dispose()
+})

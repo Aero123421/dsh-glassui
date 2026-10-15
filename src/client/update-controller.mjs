@@ -114,6 +114,29 @@ export class UpdateController {
       if (generation === this.generation) this.publish({ ...this.state, status: 'blocked', reason: 'network' })
     }
   }
+  async restore() {
+    if (
+      this.closed ||
+      !this.profileKey ||
+      !this.requestId ||
+      (this.state.reason !== 'restore-offer' && this.state.reason !== 'restore-limit')
+    )
+      return
+    const generation = ++this.generation
+    this.publish({ ...this.state, status: 'installing' })
+    try {
+      const state = await this.call('restore', { requestId: this.requestId, profileKey: this.profileKey })
+      if (this.closed || generation !== this.generation) return
+      this.publish(state)
+    } catch (error) {
+      if (this.closed || generation !== this.generation) return
+      this.publish({
+        ...this.state,
+        status: 'unknown',
+        reason: String(error.message).endsWith('/profile') ? 'profile' : 'network',
+      })
+    }
+  }
   async begin() {
     if (this.closed || !this.profileKey || this.state.status !== 'available') return
     const candidate = this.state.candidate,

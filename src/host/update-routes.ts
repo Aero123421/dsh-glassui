@@ -53,7 +53,7 @@ export function applyUpdateRoutes(ctx: UpdateHost, readSettings: () => GlassSett
   })
   ctx.effect?.(() => () => updates.dispose(), 'dsh-glassui: update retrieval')
   ctx.inject?.(['connection'], child => {
-    for (const method of ['status', 'check', 'begin', 'reconcile']) {
+    for (const method of ['status', 'check', 'begin', 'reconcile', 'restore']) {
       const endpoint = `dsh-glassui/update-${method}`
       child.connection.fetch.register({
         path: `/api/${endpoint}`,
@@ -79,6 +79,7 @@ export function applyUpdateRoutes(ctx: UpdateHost, readSettings: () => GlassSett
             if (method === 'status') value = await updates.status()
             else if (method === 'check') value = await updates.check()
             else if (method === 'reconcile') value = await updates.reconcile(payload.requestId)
+            else if (method === 'restore') value = await updates.restore(payload.requestId, payload.profileKey)
             else {
               const settings = settingsOf(payload.settings)
               if (!sameSettings(readSettings(), settings)) throw new Error('settings')

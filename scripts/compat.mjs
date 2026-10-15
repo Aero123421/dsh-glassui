@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
+import { peerRangeDecision } from '../src/host/updates.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -162,7 +163,29 @@ for (const name of packages) {
 
 // ---------------------------------------------------------------- report
 
-const report = { dsh: dshVersion, plugin: manifest.version, tokens: [], contracts: [], injects: [] }
+let runtimeVersion = dshVersion
+const bootManifest = join(scope, 'dsh-app-boot', 'package.json')
+if (existsSync(bootManifest)) runtimeVersion = JSON.parse(await readFile(bootManifest, 'utf8')).version
+
+const peers = []
+for (const [name, range] of Object.entries(manifest.peerDependencies ?? {})) {
+  if (name !== '@deepseek-ai/dsh' && !name.startsWith('@deepseek-ai/dsh-')) continue
+  // Every alternative needs a lower and an upper bound inside the running series.
+  const ok = peerRangeDecision(range, runtimeVersion) === 'ok'
+  peers.push({ name, range, runtime: runtimeVersion, required: true, ok })
+}
+if (peers.length === 0)
+  peers.push({ name: '@deepseek-ai/dsh', range: '', runtime: runtimeVersion, required: true, ok: false })
+
+const report = {
+  dsh: dshVersion,
+  runtime: runtimeVersion,
+  plugin: manifest.version,
+  tokens: [],
+  contracts: [],
+  injects: [],
+  peers,
+}
 for (const [name, need] of [...neededTokens].sort(([a], [b]) => a.localeCompare(b))) {
   report.tokens.push({ name, required: need.required, source: need.source, ok: defined.has(name) })
 }
@@ -175,14 +198,20 @@ for (const id of manifest.dsh.client.inject) {
   report.injects.push({ name: id, required: true, ok: packages.includes(name) })
 }
 
-const failures = [...report.tokens, ...report.contracts, ...report.injects].filter(item => item.required && !item.ok)
+const failures = [...report.tokens, ...report.contracts, ...report.injects, ...report.peers].filter(
+  item => item.required && !item.ok,
+)
 const warnings = [...report.tokens, ...report.contracts].filter(item => !item.required && !item.ok)
 
 if (args.json) {
   console.log(JSON.stringify({ ...report, ok: failures.length === 0 }, null, 2))
 } else {
   const mark = item => (item.ok ? 'ok  ' : item.required ? 'MISS' : 'warn')
-  console.log(`dsh-glassui ${report.plugin} against @deepseek-ai/dsh ${report.dsh}\n`)
+  console.log(
+    `dsh-glassui ${report.plugin} against @deepseek-ai/dsh ${report.dsh}` +
+      (report.runtime === report.dsh ? '' : ` (runtime ${report.runtime})`) +
+      '\n',
+  )
   console.log(`Tokens (${report.tokens.filter(item => item.ok).length}/${report.tokens.length} defined)`)
   for (const item of report.tokens) if (!item.ok) console.log(`  ${mark(item)} ${item.name}  (${item.source})`)
   console.log('\nContracts')
@@ -190,6 +219,9 @@ if (args.json) {
     console.log(`  ${mark(item)} ${item.name}${item.ok ? `  [${item.where.slice(0, 3).join(', ')}]` : ''}`)
   console.log('\nInjected client packages')
   for (const item of report.injects) console.log(`  ${mark(item)} ${item.name}`)
+  console.log('\nDSH peer range (prereleases included, same rule as boot)')
+  for (const item of report.peers)
+    console.log(`  ${mark(item)} ${item.name} ${item.range || '(missing)'}  admits ${item.runtime}`)
   console.log(
     failures.length === 0
       ? `\nCompatible${warnings.length > 0 ? ` (${warnings.length} optional item(s) missing)` : ''}.`

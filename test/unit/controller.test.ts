@@ -213,6 +213,24 @@ describe('GlassController', () => {
     assert.equal(controller.getSnapshot().settings.wallpaper, 'graphite')
   })
 
+  it('does not notify when a diagnostics poll repeats the same snapshot', () => {
+    const engine = new FakeEngine()
+    const controller = new GlassController(engine)
+    let calls = 0
+    controller.subscribe(() => calls++)
+    controller.refreshDiagnostics()
+    assert.equal(calls, 0)
+    const current = controller.getSnapshot().diagnostics
+    engine.diagnostics = () => ({ ...current, lenses: current.lenses + 1, scans: { ...current.scans, batches: 4 } })
+    controller.refreshDiagnostics()
+    assert.equal(calls, 1)
+    assert.equal(controller.getSnapshot().diagnostics.lenses, 1)
+    assert.equal(controller.getSnapshot().diagnostics.scans.batches, 4)
+    controller.refreshDiagnostics()
+    assert.equal(calls, 1)
+    controller.dispose()
+  })
+
   it('notifies subscribers and stops when unsubscribed', () => {
     const controller = new GlassController(new FakeEngine())
     let calls = 0

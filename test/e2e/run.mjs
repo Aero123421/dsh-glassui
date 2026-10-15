@@ -165,7 +165,16 @@ function kinds(page) {
 }
 
 async function openSettings(page) {
-  await page.getByText('Settings', { exact: true }).first().click()
+  // 0.2.1-alpha.2 and earlier put a Settings button in the sidebar foot.
+  // 0.2.1-alpha.3 replaces that launcher with the account menu (visible label
+  // More, accessible name Account menu). Settings is a menuitem inside it.
+  const direct = page.getByRole('button', { name: 'Settings', exact: true })
+  if (await direct.isVisible().catch(() => false)) {
+    await direct.click()
+  } else {
+    await page.getByRole('button', { name: 'Account menu', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Settings', exact: true }).click()
+  }
   await page.getByRole('button', { name: 'Glass UI', exact: true }).click()
   await page.getByRole('switch', { name: 'Glass material' }).waitFor()
 }

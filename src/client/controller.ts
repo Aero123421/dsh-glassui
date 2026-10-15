@@ -4,6 +4,7 @@
  * saved, applies the result to the engine at once, and writes edits back
  * through DSH's settings form. The settings page reads it as an external store.
  */
+import { SURFACE_KINDS } from '../shared/dom.ts'
 import { DEFAULT_SETTINGS, normalizeSettings, sameSettings, type GlassSettings } from '../shared/settings.ts'
 import type { Diagnostics } from './engine/engine.ts'
 
@@ -139,7 +140,10 @@ export class GlassController {
   /** Re-read the engine's diagnostics (the page polls this while open). */
   refreshDiagnostics(): void {
     if (this.disposed) return
-    this.state = { ...this.state, diagnostics: this.engine.diagnostics() }
+    const diagnostics = this.engine.diagnostics()
+    // The page polls once a second. An unchanged snapshot must not render again.
+    if (sameDiagnostics(diagnostics, this.state.diagnostics)) return
+    this.state = { ...this.state, diagnostics }
     this.emit()
   }
 
@@ -244,4 +248,42 @@ export class GlassController {
     this.pending.clear()
     this.listeners.clear()
   }
+}
+
+function sameList(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false
+  for (let index = 0; index < left.length; index++) if (left[index] !== right[index]) return false
+  return true
+}
+
+/** Field-wise equality. The engine returns a fresh object on every read. */
+function sameDiagnostics(left: Diagnostics, right: Diagnostics): boolean {
+  if (
+    left.running !== right.running ||
+    left.idle !== right.idle ||
+    left.lenses !== right.lenses ||
+    left.invalidExclude !== right.invalidExclude
+  ) {
+    return false
+  }
+  const leftEnv = left.environment
+  const rightEnv = right.environment
+  if (
+    leftEnv.refraction !== rightEnv.refraction ||
+    leftEnv.finePointer !== rightEnv.finePointer ||
+    leftEnv.reducedTransparency !== rightEnv.reducedTransparency ||
+    leftEnv.reducedMotion !== rightEnv.reducedMotion
+  ) {
+    return false
+  }
+  if (!sameList(left.missingTokens, right.missingTokens) || !sameList(left.ambiguousTokens, right.ambiguousTokens)) {
+    return false
+  }
+  for (const kind of SURFACE_KINDS) if (left.surfaces[kind] !== right.surfaces[kind]) return false
+  return (
+    left.scans.batches === right.scans.batches &&
+    left.scans.inspected === right.scans.inspected &&
+    left.scans.longestMs === right.scans.longestMs &&
+    left.scans.totalMs === right.scans.totalMs
+  )
 }
