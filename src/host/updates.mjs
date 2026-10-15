@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, writeFile, readFile, rename, lstat, readdir } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile, readFile, rename, lstat, readdir, open, rm, link } from 'node:fs/promises'
 import { join, resolve, sep, basename, win32 } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 import { updateRequestId } from './update-request-id.ts'
@@ -381,6 +381,12 @@ export const BUNDLE_LIST_ATTEMPTS = 3
 export const RESTORE_ATTEMPT_LIMIT = 3
 /** Minimum time between automatic reinstalls. A Settings reinstall does not wait for this gap. */
 export const RESTORE_ATTEMPT_INTERVAL_MS = 10_000
+/** How long a restore lock stays valid without renewal. */
+const RESTORE_LOCK_TTL_MS = 60_000
+/** How often the holder extends the lock while `installBundle` runs. */
+const RESTORE_LOCK_RENEW_MS = 15_000
+/** Clock skew allowed past `Date.now()` before a future expiry is treated as not held. */
+const RESTORE_LOCK_SKEW_MS = 5_000
 
 /**
  * @param {Manager} manager
@@ -466,6 +472,10 @@ function removalProven(operation) {
  * @param {object} operation
  */
 function packageWasInstalled(operation) {
+  // A list that showed the package is remembered. A later absence is then someone else's removal.
+  // A manual install and delete that this process never listed is the same journal as a removal
+  // this update has not restored yet, so that unseen cycle still restores once.
+  if (operation.observedPresent === true) return true
   if (operation.restore === 'ok' || operation.reason === 'restored' || operation.reason === 'restore-pending')
     return true
   const application = operation.result?.application
@@ -474,14 +484,157 @@ function packageWasInstalled(operation) {
   return receipts.some(item => item?.kind === 'apply')
 }
 /**
+ * A journal field lock from an older process. A future or expired timestamp is not a hold.
  * @param {object} operation
  * @param {number} now
  */
-function restoreLockHeld(operation, now) {
+function journalLockHeld(operation, now) {
   const lock = operation.restoreLock
-  return Boolean(
-    lock && typeof lock.at === 'number' && Number.isFinite(lock.at) && now - lock.at < RESTORE_ATTEMPT_INTERVAL_MS,
+  if (!lock || typeof lock.at !== 'number' || !Number.isFinite(lock.at)) return false
+  if (lock.at > now + RESTORE_LOCK_SKEW_MS) return false
+  return now - lock.at < RESTORE_LOCK_TTL_MS
+}
+/**
+ * @param {string} text
+ * @returns {{ owner: string, requestId?: string, expiresAt: number } | null}
+ */
+function parseLease(text) {
+  let value
+  try {
+    value = JSON.parse(text)
+  } catch {
+    return null
+  }
+  if (!value || typeof value !== 'object') return null
+  if (typeof value.owner !== 'string' || !UUID.test(value.owner)) return null
+  if (typeof value.expiresAt !== 'number' || !Number.isFinite(value.expiresAt)) return null
+  return value
+}
+/**
+ * @param {{ expiresAt: number } | null} lease
+ * @param {number} now
+ */
+function leaseHeld(lease, now) {
+  if (!lease) return false
+  if (lease.expiresAt <= now) return false
+  if (lease.expiresAt > now + RESTORE_LOCK_TTL_MS + RESTORE_LOCK_SKEW_MS) return false
+  return true
+}
+/**
+ * @param {import('node:fs').Stats} left
+ * @param {import('node:fs').Stats} right
+ */
+function sameFile(left, right) {
+  return Boolean(left && right && left.ino && right.ino && left.dev === right.dev && left.ino === right.ino)
+}
+/**
+ * @param {import('node:fs/promises').FileHandle} handle
+ * @param {string} body
+ */
+async function writeHandle(handle, body) {
+  const bytes = Buffer.from(body)
+  await handle.write(bytes, 0, bytes.length, 0)
+  await handle.truncate(bytes.length)
+}
+/**
+ * @param {{ queue: Promise<void> }} lock
+ * @param {() => Promise<unknown>} fn
+ */
+function enqueueLock(lock, fn) {
+  const run = lock.queue.then(fn, fn)
+  lock.queue = run.then(
+    () => undefined,
+    () => undefined,
   )
+  return run
+}
+/**
+ * @param {string} path
+ * @returns {Promise<{ lease: { owner: string, requestId?: string, expiresAt: number } | null, missing: boolean }>}
+ */
+async function readLeaseStable(path) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const lease = parseLease(await readFile(path, 'utf8'))
+      if (lease) return { lease, missing: false }
+    } catch (error) {
+      if (error?.code === 'ENOENT') return { lease: null, missing: true }
+    }
+  }
+  return { lease: null, missing: false }
+}
+/**
+ * Publish a complete lease. The path appears only after the body is written.
+ * @param {string} path
+ * @param {string} requestId
+ * @param {string} owner
+ */
+async function publishLock(path, requestId, owner) {
+  const temp = `${path}.${randomUUID()}.locktmp`
+  const body = JSON.stringify({ owner, requestId, expiresAt: Date.now() + RESTORE_LOCK_TTL_MS })
+  let fh
+  try {
+    fh = await open(temp, 'wx', 0o600)
+  } catch (error) {
+    if (error?.code === 'EEXIST') return null
+    throw error
+  }
+  try {
+    await writeHandle(fh, body)
+    await link(temp, path)
+  } catch (error) {
+    await fh.close().catch(() => {})
+    await rm(temp, { force: true }).catch(() => {})
+    if (error?.code === 'EEXIST') return null
+    throw error
+  }
+  await rm(temp, { force: true }).catch(() => {})
+  return { fh, path, owner, requestId, queue: Promise.resolve(), lost: false }
+}
+/**
+ * @param {unknown[] | undefined} left
+ * @param {unknown[] | undefined} right
+ */
+function unionReceipts(left, right) {
+  /** @type {{ kind: string, id: string }[]} */
+  const out = []
+  const items = [...(Array.isArray(left) ? left : []), ...(Array.isArray(right) ? right : [])]
+  for (const item of items) {
+    if (!item || typeof item.kind !== 'string' || typeof item.id !== 'string') continue
+    if (out.some(existing => existing.kind === item.kind && existing.id === item.id)) continue
+    out.push(item)
+  }
+  return out
+}
+/**
+ * @param {object} operation
+ * @param {object} disk
+ */
+function absorbMonotonic(operation, disk) {
+  operation.restoreAttempts = Math.max(attemptsOf(disk), attemptsOf(operation))
+  const diskAt =
+    typeof disk.restoreAttemptAt === 'number' && Number.isFinite(disk.restoreAttemptAt) ? disk.restoreAttemptAt : 0
+  const opAt =
+    typeof operation.restoreAttemptAt === 'number' && Number.isFinite(operation.restoreAttemptAt)
+      ? operation.restoreAttemptAt
+      : 0
+  if (diskAt || opAt) operation.restoreAttemptAt = Math.max(diskAt, opAt)
+  operation.observedPresent = Boolean(disk.observedPresent || operation.observedPresent)
+  operation.receipts = unionReceipts(disk.receipts, operation.receipts)
+  delete operation.restoreLock
+}
+/**
+ * @param {Manager} manager
+ * @returns {Promise<'absent' | 'present' | 'unknown'>}
+ */
+async function listedPackage(manager) {
+  try {
+    const listed = await manager.listBundles()
+    if (!Array.isArray(listed)) return 'unknown'
+    return listed.some(item => item?.name === PACKAGE && item.installed) ? 'present' : 'absent'
+  } catch {
+    return 'unknown'
+  }
 }
 /**
  * @param {object} operation
@@ -493,10 +646,13 @@ function attemptsOf(operation) {
 }
 /**
  * @param {object} operation
- * @param {{ absent: boolean, installUnresolved: boolean, now: number, cacheDir: string | undefined }} facts
+ * @param {{ absent: boolean, installUnresolved: boolean, now: number, cacheDir: string | undefined, lockHeld?: boolean, directoryUnread?: boolean }} facts
  * @returns {'skip' | 'auto' | 'offer' | 'limit' | 'inflight' | 'wait' | 'invalid-source'}
  */
-function restorePlan(operation, { absent, installUnresolved, now, cacheDir }) {
+function restorePlan(
+  operation,
+  { absent, installUnresolved, now, cacheDir, lockHeld = false, directoryUnread = false },
+) {
   if (!absent) return 'skip'
   if (operation.reason === 'restored' || operation.reason === 'restore-failed') return 'skip'
   const spec = previousSpec(operation)
@@ -506,12 +662,13 @@ function restorePlan(operation, { absent, installUnresolved, now, cacheDir }) {
   } catch {
     return 'invalid-source'
   }
-  if (installUnresolved || restoreLockHeld(operation, now)) return 'inflight'
+  if (lockHeld) return 'inflight'
   if (attemptsOf(operation) >= RESTORE_ATTEMPT_LIMIT) return 'limit'
   const recent =
     typeof operation.restoreAttemptAt === 'number' && now - operation.restoreAttemptAt < RESTORE_ATTEMPT_INTERVAL_MS
-  if (removalProven(operation) && operation.status === 'unknown' && recent) return 'wait'
-  if (removalProven(operation) && operation.status === 'unknown') return 'auto'
+  const proven = removalProven(operation) && operation.status === 'unknown'
+  if (proven && recent && !directoryUnread && !installUnresolved) return 'wait'
+  if (proven && !installUnresolved && !directoryUnread) return 'auto'
   return 'offer'
 }
 /**
@@ -535,6 +692,8 @@ async function installStillElsewhere(manager, requestId) {
  * A journal source is checked with the current source rules before that install.
  * When `blockIfIdleRequest` is set, a null `waitForInstall` refuses the install:
  * another process may still be installing that request.
+ * `confirmAbsent` runs after the restore request is recorded and immediately before
+ * `installBundle`. A present package or a failed list does not install.
  * @param {Manager} manager
  * @param {{ source?: string, enabled?: boolean, version?: string } | undefined} previous
  * @param {RestoreHooks | undefined} hooks
@@ -554,6 +713,9 @@ async function reinstallPrevious(manager, previous, hooks) {
     return undefined
   const requestId = updateRequestId()
   if (hooks?.onRestoreRequest) await hooks.onRestoreRequest(requestId, previous.version)
+  if (hooks?.stillOwned && !(await hooks.stillOwned())) return undefined
+  if (hooks?.confirmAbsent && !(await hooks.confirmAbsent())) return undefined
+  if (hooks?.abandoned?.()) return undefined
   let restored
   try {
     restored = await manager.installBundle(source, {
@@ -1104,6 +1266,10 @@ export class PluginUpdates {
     if (operation.status === 'applied' && (operation.reason === 'reinstall' || operation.reason === 'restore-pending'))
       delete operation.reason
     const absent = !listFailed && bundle?.installed !== true
+    const sawPresent = !listFailed && bundle?.installed === true
+    const presenceChanged = sawPresent && operation.observedPresent !== true
+    if (sawPresent) operation.observedPresent = true
+    const receiptsBefore = Array.isArray(operation.receipts) ? operation.receipts.length : 0
     if (
       absent &&
       operation.reason !== 'restored' &&
@@ -1111,34 +1277,45 @@ export class PluginUpdates {
       packageWasInstalled(operation)
     )
       appendReceipt(operation, { kind: 'remove', id: operation.requestId, at: Date.now() })
-    if (absent && removalProven(operation) && (await this.laterForeignReceipt(operation)))
-      appendReceipt(operation, { kind: 'apply', id: `foreign:${operation.requestId}`, at: Date.now() })
+    let directoryUnread = false
+    if (absent && removalProven(operation)) {
+      const foreign = await this.laterForeignReceipt(operation)
+      if (foreign === true)
+        appendReceipt(operation, { kind: 'apply', id: `foreign:${operation.requestId}`, at: Date.now() })
+      else if (foreign === 'unreadable') directoryUnread = true
+    }
+    const receiptAdded = (Array.isArray(operation.receipts) ? operation.receipts.length : 0) > receiptsBefore
+    const lockHeld = journalLockHeld(operation, Date.now()) || (await this.fileLockHeld(operation.requestId))
     const plan = restorePlan(operation, {
       absent,
       installUnresolved,
       now: Date.now(),
       cacheDir: this.cacheDir,
+      lockHeld,
+      directoryUnread,
     })
+    if ((presenceChanged || receiptAdded) && plan !== 'auto') await this.persistRestoreJournal(operation)
     if (plan === 'auto') {
       const restoredVersion = await this.restoreMissing(operation)
       if (typeof restoredVersion === 'string') installed = restoredVersion
-    } else if (plan === 'inflight' && !operation.result) await this.restoreMissing(operation)
-    else if (plan === 'offer') operation.reason = 'restore-offer'
+    } else if (plan === 'offer') operation.reason = 'restore-offer'
     else if (plan === 'limit') operation.reason = 'restore-limit'
     else if (plan === 'invalid-source') operation.reason = 'source'
     return { ...this.base(), ...operation, installedVersion: installed }
   }
   /**
    * Another operation journal recorded an apply or removal after this one removed the package.
-   * An unreadable journal is treated as a later receipt so this process does not reinstall.
+   * One unreadable sibling is renamed aside and skipped. If the directory itself cannot be
+   * read, this pass does not treat that as a later receipt for every operation.
    * @param {object} operation
+   * @returns {Promise<boolean | 'unreadable'>}
    */
   async laterForeignReceipt(operation) {
     let names
     try {
       names = await readdir(this.cacheDir)
     } catch {
-      return true
+      return 'unreadable'
     }
     const receipts = Array.isArray(operation.receipts) ? operation.receipts : []
     const marker = receipts.find(item => item?.kind === 'removed-by-update' && item.id === operation.requestId)
@@ -1151,8 +1328,9 @@ export class PluginUpdates {
       let other
       try {
         other = JSON.parse(await readFile(join(this.cacheDir, name), 'utf8'))
-      } catch {
-        return true
+      } catch (error) {
+        if (error?.code !== 'ENOENT') await this.quarantineJournal(name)
+        continue
       }
       const otherReceipts = Array.isArray(other?.receipts) ? other.receipts : []
       if (
@@ -1230,47 +1408,85 @@ export class PluginUpdates {
       operation.reason = 'source'
       return undefined
     }
-    const now = Date.now()
-    if (restoreLockHeld(operation, now)) return undefined
-    if (attemptsOf(operation) >= RESTORE_ATTEMPT_LIMIT) {
-      operation.reason = 'restore-limit'
-      return undefined
-    }
-    const recent =
-      typeof operation.restoreAttemptAt === 'number' && now - operation.restoreAttemptAt < RESTORE_ATTEMPT_INTERVAL_MS
-    if (!manual && recent) return undefined
     if (!manual && !removalProven(operation)) return undefined
+    if (!manual && !operation.result) return undefined
     const manager = this.manager()
     if (!manager || typeof manager.installBundle !== 'function' || typeof manager.listBundles !== 'function')
       return undefined
-    if (!operation.result) {
-      // No saved outcome. `reinstallPrevious` refuses when this process has no active request,
-      // because another process may still be installing it. Do not start a second install.
-      await reinstallPrevious(manager, spec, {
-        validateSource: true,
-        cacheDir: this.cacheDir,
-        blockIfIdleRequest: operation.requestId,
-      })
-      return undefined
-    }
-    operation.restoreLock = { at: now, id: randomUUID() }
-    operation.restoreAttempts = attemptsOf(operation) + 1
-    operation.restoreAttemptAt = now
+    if (journalLockHeld(operation, Date.now())) return undefined
+    const lock = await this.acquireRestoreLock(operation.requestId)
+    if (!lock) return undefined
+    const timer = setInterval(() => {
+      void this.renewRestoreLock(lock).then(
+        ok => {
+          if (!ok) lock.lost = true
+        },
+        () => {
+          lock.lost = true
+        },
+      )
+    }, RESTORE_LOCK_RENEW_MS)
+    timer.unref?.()
     try {
-      await this.save(operation)
-    } catch {
+      if (this.closed) return undefined
+      await this.reloadOperation(operation)
+      const current = previousSpec(operation)
+      if (!current) return undefined
+      try {
+        sourceKind(current.source, this.cacheDir, current.version)
+      } catch {
+        operation.reason = 'source'
+        return undefined
+      }
+      if (journalLockHeld(operation, Date.now())) return undefined
+      const now = Date.now()
+      if (attemptsOf(operation) >= RESTORE_ATTEMPT_LIMIT) {
+        operation.reason = 'restore-limit'
+        await this.saveMerged(operation)
+        return undefined
+      }
+      const recent =
+        typeof operation.restoreAttemptAt === 'number' && now - operation.restoreAttemptAt < RESTORE_ATTEMPT_INTERVAL_MS
+      if (!manual && recent) return undefined
+      if (!manual && !removalProven(operation)) return undefined
+      if (!manual && !operation.result) return undefined
+      const presence = await listedPackage(manager)
+      if (presence !== 'absent') {
+        if (presence === 'present') {
+          operation.observedPresent = true
+          try {
+            await this.saveMerged(operation)
+          } catch {
+            // The caller still returns the listed version.
+          }
+          return await this.listedVersion()
+        }
+        return undefined
+      }
+      operation.restoreAttempts = attemptsOf(operation) + 1
+      operation.restoreAttemptAt = now
       delete operation.restoreLock
-      return undefined
-    }
-    try {
-      const restore = await reinstallPrevious(manager, spec, {
+      try {
+        await this.saveMerged(operation)
+      } catch {
+        return undefined
+      }
+      const restore = await reinstallPrevious(manager, current, {
         validateSource: true,
         cacheDir: this.cacheDir,
+        stillOwned: async () => {
+          if (lock.lost) return false
+          const ok = await this.renewRestoreLock(lock)
+          if (!ok) lock.lost = true
+          return ok
+        },
+        confirmAbsent: async () => (await listedPackage(manager)) === 'absent',
+        abandoned: () => lock.lost === true,
         onRestoreRequest: async (requestId, previousVersion) => {
           operation.restoreRequestId = requestId
           if (typeof previousVersion === 'string' && previousVersion !== '') operation.previousVersion = previousVersion
           try {
-            await this.save(operation)
+            await this.saveMerged(operation)
           } catch {
             // The id remains on the operation for the journal write below.
           }
@@ -1285,14 +1501,213 @@ export class PluginUpdates {
         (operation.reason === 'reinstall' || operation.reason === 'restore-pending')
       )
         delete operation.reason
-      return await this.listedVersion()
-    } finally {
-      delete operation.restoreLock
       try {
-        await this.save(operation)
+        await this.saveMerged(operation)
       } catch {
         // The returned view still reports this attempt. The next reconcile reads the disk copy.
       }
+      return await this.listedVersion()
+    } finally {
+      clearInterval(timer)
+      await this.releaseRestoreLock(lock)
+    }
+  }
+  /**
+   * @param {string} requestId
+   */
+  async fileLockHeld(requestId) {
+    if (!this.cacheDir || typeof requestId !== 'string' || !UUID.test(requestId)) return false
+    const seen = await readLeaseStable(join(this.cacheDir, `${requestId}.restore.lock`))
+    return leaseHeld(seen.lease, Date.now())
+  }
+  /**
+   * Exclusive lock file. Expired, unreadable, and absurdly future leases can be taken over
+   * by renaming them aside; only one rename wins.
+   * @param {string} requestId
+   */
+  async acquireRestoreLock(requestId) {
+    if (typeof requestId !== 'string' || !UUID.test(requestId)) return null
+    const directory = await this.privateDir()
+    const path = join(directory, `${requestId}.restore.lock`)
+    const owner = randomUUID()
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const created = await publishLock(path, requestId, owner)
+      if (created) return created
+      const seen = await readLeaseStable(path)
+      if (seen.missing) continue
+      if (leaseHeld(seen.lease, Date.now())) return null
+      const taken = await this.takeoverRestoreLock(path, requestId, owner)
+      if (taken) return taken
+    }
+    return null
+  }
+  /**
+   * @param {string} path
+   * @param {string} requestId
+   * @param {string} owner
+   */
+  async takeoverRestoreLock(path, requestId, owner) {
+    const grave = `${path}.${randomUUID()}.stale`
+    try {
+      await rename(path, grave)
+    } catch {
+      return null
+    }
+    let moved = null
+    for (let attempt = 0; attempt < 3 && !moved; attempt++) {
+      try {
+        moved = parseLease(await readFile(grave, 'utf8'))
+      } catch {
+        moved = null
+      }
+    }
+    if (leaseHeld(moved, Date.now())) {
+      try {
+        await link(grave, path)
+        await rm(grave, { force: true })
+      } catch {
+        // The path belongs to someone else. Leave the grave in place.
+      }
+      return null
+    }
+    try {
+      return await publishLock(path, requestId, owner)
+    } finally {
+      await rm(grave, { force: true }).catch(() => {})
+    }
+  }
+  /**
+   * @param {{ fh: import('node:fs/promises').FileHandle, path: string, owner: string, requestId: string, queue: Promise<void>, lost: boolean }} lock
+   */
+  async renewRestoreLock(lock) {
+    return enqueueLock(lock, async () => {
+      let fhStat
+      let pathStat
+      try {
+        fhStat = await lock.fh.stat()
+        pathStat = await lstat(lock.path)
+      } catch {
+        return false
+      }
+      if (!sameFile(fhStat, pathStat)) return false
+      const body = JSON.stringify({
+        owner: lock.owner,
+        requestId: lock.requestId,
+        expiresAt: Date.now() + RESTORE_LOCK_TTL_MS,
+      })
+      try {
+        await writeHandle(lock.fh, body)
+        const again = await lstat(lock.path)
+        const fhAgain = await lock.fh.stat()
+        if (!sameFile(again, fhAgain)) return false
+        const seen = parseLease(await readFile(lock.path, 'utf8'))
+        return Boolean(seen && seen.owner === lock.owner && leaseHeld(seen, Date.now()))
+      } catch {
+        return false
+      }
+    })
+  }
+  /**
+   * Remove the lock only when this holder still owns the file that was renamed aside.
+   * @param {{ fh: import('node:fs/promises').FileHandle, path: string, owner: string, requestId: string, queue: Promise<void>, lost: boolean } | null} lock
+   */
+  async releaseRestoreLock(lock) {
+    if (!lock) return
+    await enqueueLock(lock, async () => {
+      let fhStat
+      let pathStat
+      try {
+        fhStat = await lock.fh.stat()
+        pathStat = await lstat(lock.path)
+      } catch {
+        return
+      }
+      if (!sameFile(fhStat, pathStat)) return
+      const grave = `${lock.path}.${randomUUID()}.release`
+      try {
+        await rename(lock.path, grave)
+      } catch {
+        return
+      }
+      let mine
+      try {
+        const graveStat = await lstat(grave)
+        const body = parseLease(await readFile(grave, 'utf8'))
+        mine = sameFile(fhStat, graveStat) && body?.owner === lock.owner
+      } catch {
+        mine = false
+      }
+      if (mine) {
+        await rm(grave, { force: true }).catch(() => {})
+        return
+      }
+      try {
+        await link(grave, lock.path)
+        await rm(grave, { force: true }).catch(() => {})
+      } catch {
+        // The path was claimed. Leave the displaced lease under the grave name.
+      }
+    })
+    await lock.fh.close().catch(() => {})
+  }
+  /**
+   * @param {string} name
+   */
+  async quarantineJournal(name) {
+    if (!name.endsWith('.json') || name === 'latest.json') return
+    const id = name.slice(0, -5)
+    if (!UUID.test(id)) return
+    try {
+      await rename(join(this.cacheDir, name), join(this.cacheDir, `${name}.quarantine`))
+    } catch {
+      // The file was already moved, or the quarantine name could not be created.
+    }
+  }
+  /**
+   * @param {object} operation
+   */
+  async reloadOperation(operation) {
+    try {
+      const disk = JSON.parse(await readFile(join(this.cacheDir, `${operation.requestId}.json`), 'utf8'))
+      if (!disk || disk.requestId !== operation.requestId) return
+      for (const key of Object.keys(operation)) {
+        if (!(key in disk)) delete operation[key]
+      }
+      Object.assign(operation, disk)
+    } catch {
+      // Keep the in-memory operation when the journal cannot be read.
+    }
+  }
+  /**
+   * Re-read the journal under the caller's lock and keep attempt counts that another
+   * process already recorded.
+   * @param {object} operation
+   */
+  async saveMerged(operation) {
+    let disk = {}
+    try {
+      const parsed = JSON.parse(await readFile(join(this.cacheDir, `${operation.requestId}.json`), 'utf8'))
+      if (parsed?.requestId === operation.requestId) disk = parsed
+    } catch {
+      disk = {}
+    }
+    absorbMonotonic(operation, disk)
+    await this.save(operation)
+  }
+  /**
+   * @param {object} operation
+   */
+  async persistRestoreJournal(operation) {
+    if (this.closed || journalLockHeld(operation, Date.now())) return false
+    const lock = await this.acquireRestoreLock(operation.requestId)
+    if (!lock) return false
+    try {
+      await this.saveMerged(operation)
+      return true
+    } catch {
+      return false
+    } finally {
+      await this.releaseRestoreLock(lock)
     }
   }
   /** @returns {Promise<string | undefined>} */

@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { mkdtemp, rm, writeFile, mkdir, symlink, readFile } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
+import { mkdtemp, rm, writeFile, mkdir, symlink, readFile, readdir, rename } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID, createHash } from 'node:crypto'
@@ -1769,14 +1770,19 @@ test('reconcile does not reinstall when another process may still be installing'
   )
   const view = await updater.reconcile(id)
   assert.equal(calls.length, 0)
+  assert.equal(view.reason, 'restore-offer')
   assert.notEqual(view.reason, 'restore-failed')
-  assert.notEqual(view.reason, 'restore-offer')
   assert.notEqual(view.reason, 'restored')
+  const manual = await updater.restore(id, updater.base().profileKey)
+  assert.equal(calls.length, 1)
+  assert.equal(manual.reason, 'restored')
   await updater.save(provenRemoval(id, { restoreLock: { at: Date.now(), id: randomUUID() } }), true)
   bundle.installed = false
   delete bundle.version
+  calls.length = 0
   const locked = await updater.reconcile(id)
   assert.equal(calls.length, 0)
+  assert.notEqual(locked.reason, 'restore-offer')
   assert.notEqual(locked.reason, 'restore-failed')
   assert.notEqual(locked.reason, 'restored')
 })
@@ -1828,4 +1834,395 @@ test('a saved previous source is checked again before reinstall', async t => {
   assert.equal(refused.reason, 'source')
   const text = readFileSync(new URL('../../src/host/updates.d.mts', import.meta.url), 'utf8')
   assert.match(text, /export const BUNDLE_LIST_ATTEMPTS: number/)
+})
+
+test('a future or expired journal lock does not keep the restore stuck', async t => {
+  const { updater, manager, bundle, calls } = await fixture(t)
+  bundle.installed = false
+  delete bundle.version
+  manager.installBundle = async spec => {
+    calls.push([spec])
+    bundle.installed = true
+    bundle.version = '0.5.0'
+    return previousInstall(spec)
+  }
+  const future = randomUUID()
+  await updater.save(provenRemoval(future, { restoreLock: { at: Date.now() + 3_600_000, id: randomUUID() } }), true)
+  const futureView = await updater.reconcile(future)
+  assert.equal(calls.length, 1)
+  assert.equal(futureView.reason, 'restored')
+  const expired = randomUUID()
+  bundle.installed = false
+  delete bundle.version
+  await updater.save(provenRemoval(expired, { restoreLock: { at: Date.now() - 120_000, id: randomUUID() } }), true)
+  const expiredView = await updater.reconcile(expired)
+  assert.equal(calls.length, 2)
+  assert.equal(expiredView.reason, 'restored')
+})
+
+test('a live lock file blocks restore and a stale lock file can be taken over', async t => {
+  const { updater, manager, bundle, calls, directory } = await fixture(t)
+  const held = randomUUID()
+  bundle.installed = false
+  delete bundle.version
+  manager.installBundle = async spec => {
+    calls.push([spec])
+    bundle.installed = true
+    bundle.version = '0.5.0'
+    return previousInstall(spec)
+  }
+  await updater.save(provenRemoval(held), true)
+  await writeFile(
+    join(directory, '.dsh-glassui-updates', `${held}.restore.lock`),
+    JSON.stringify({ owner: randomUUID(), requestId: held, expiresAt: Date.now() + 30_000 }),
+  )
+  const blocked = await updater.reconcile(held)
+  assert.equal(calls.length, 0)
+  assert.notEqual(blocked.reason, 'restore-offer')
+  assert.notEqual(blocked.reason, 'restored')
+  const stale = randomUUID()
+  bundle.installed = false
+  delete bundle.version
+  await updater.save(provenRemoval(stale), true)
+  await writeFile(join(directory, '.dsh-glassui-updates', `${stale}.restore.lock`), '{')
+  const recovered = await updater.reconcile(stale)
+  assert.equal(calls.length, 1)
+  assert.equal(recovered.reason, 'restored')
+  const absurd = randomUUID()
+  bundle.installed = false
+  delete bundle.version
+  await updater.save(provenRemoval(absurd), true)
+  await writeFile(
+    join(directory, '.dsh-glassui-updates', `${absurd}.restore.lock`),
+    JSON.stringify({ owner: randomUUID(), requestId: absurd, expiresAt: Date.now() + 86_400_000 }),
+  )
+  const taken = await updater.reconcile(absurd)
+  assert.equal(calls.length, 2)
+  assert.equal(taken.reason, 'restored')
+})
+
+test('restore checks the package is still absent immediately before install', async t => {
+  const { updater, manager, bundle, calls } = await fixture(t)
+  const id = randomUUID()
+  bundle.installed = false
+  delete bundle.version
+  let lists = 0
+  manager.listBundles = async () => {
+    lists += 1
+    const installed = lists >= 3
+    return [{ name: PACKAGE, installed, version: installed ? '0.9.0' : undefined, enabled: true }]
+  }
+  manager.installBundle = async spec => {
+    calls.push([spec])
+    return previousInstall(spec)
+  }
+  await updater.save(provenRemoval(id), true)
+  const view = await updater.reconcile(id)
+  assert.equal(calls.length, 0)
+  assert.equal(lists >= 3, true)
+  assert.notEqual(view.reason, 'restored')
+  const manualId = randomUUID()
+  lists = 0
+  await updater.save(
+    provenRemoval(manualId, {
+      receipts: [
+        { kind: 'removed-by-update', id: manualId, at: 1 },
+        { kind: 'remove', id: manualId, at: 2 },
+      ],
+    }),
+    true,
+  )
+  const manual = await updater.restore(manualId, updater.base().profileKey)
+  assert.equal(calls.length, 0)
+  assert.equal(lists >= 3, true)
+  assert.notEqual(manual.reason, 'restored')
+})
+
+test('a list failure immediately before install does not install', async t => {
+  const { updater, manager, bundle, calls } = await fixture(t)
+  const id = randomUUID()
+  bundle.installed = false
+  delete bundle.version
+  let lists = 0
+  manager.listBundles = async () => {
+    lists += 1
+    if (lists >= 3) throw new Error('list-down')
+    return [{ name: PACKAGE, installed: false }]
+  }
+  manager.installBundle = async spec => {
+    calls.push([spec])
+    return previousInstall(spec)
+  }
+  await updater.save(provenRemoval(id), true)
+  const view = await updater.reconcile(id)
+  assert.equal(calls.length, 0)
+  assert.equal(lists >= 3, true)
+  assert.notEqual(view.reason, 'restored')
+  assert.notEqual(view.reason, 'restore-failed')
+})
+
+test('a package seen installed is not auto-restored after a later absence', async t => {
+  const { updater, manager, bundle, calls, directory } = await fixture(t)
+  const id = randomUUID()
+  manager.installBundle = async spec => {
+    calls.push([spec])
+    bundle.installed = true
+    bundle.version = '0.5.0'
+    return previousInstall(spec)
+  }
+  await updater.save(provenRemoval(id), true)
+  const present = await updater.reconcile(id)
+  assert.equal(calls.length, 0)
+  assert.notEqual(present.reason, 'restored')
+  const saved = JSON.parse(await readFile(join(directory, '.dsh-glassui-updates', `${id}.json`), 'utf8'))
+  assert.equal(saved.observedPresent, true)
+  bundle.installed = false
+  delete bundle.version
+  const absent = await updater.reconcile(id)
+  assert.equal(calls.length, 0)
+  assert.equal(absent.reason, 'restore-offer')
+  const manual = await updater.restore(id, updater.base().profileKey)
+  assert.equal(calls.length, 1)
+  assert.equal(manual.reason, 'restored')
+})
+
+test('one broken sibling journal is quarantined and does not block auto-restore', async t => {
+  const { updater, manager, bundle, calls, directory } = await fixture(t)
+  const id = randomUUID()
+  const other = randomUUID()
+  bundle.installed = false
+  delete bundle.version
+  manager.installBundle = async spec => {
+    calls.push([spec])
+    bundle.installed = true
+    bundle.version = '0.5.0'
+    return previousInstall(spec)
+  }
+  await updater.save(provenRemoval(id), true)
+  const cache = join(directory, '.dsh-glassui-updates')
+  await writeFile(join(cache, `${other}.json`), '{')
+  const view = await updater.reconcile(id)
+  assert.equal(calls.length, 1)
+  assert.equal(view.reason, 'restored')
+  const names = await readdir(cache)
+  assert.equal(names.includes(`${other}.json`), false)
+  assert.equal(names.includes(`${other}.json.quarantine`), true)
+})
+
+test('an unreadable update directory offers a manual restore without a foreign receipt', async t => {
+  const { updater, manager, bundle, calls, directory } = await fixture(t)
+  const id = randomUUID()
+  bundle.installed = false
+  delete bundle.version
+  const cache = join(directory, '.dsh-glassui-updates')
+  manager.installBundle = async spec => {
+    calls.push([spec])
+    return previousInstall(spec)
+  }
+  manager.listBundles = async () => {
+    await rename(cache, join(directory, 'hidden-updates'))
+    return [{ name: PACKAGE, installed: false }]
+  }
+  await updater.save(provenRemoval(id), true)
+  const view = await updater.reconcile(id)
+  assert.equal(calls.length, 0)
+  assert.equal(view.reason, 'restore-offer')
+  assert.equal(
+    (view.receipts ?? []).some(item => item?.kind === 'apply' && String(item.id).startsWith('foreign:')),
+    false,
+  )
+})
+
+test('a journal write under the restore lock keeps the higher attempt count', async t => {
+  const { updater, manager, bundle, calls, directory } = await fixture(t)
+  const id = randomUUID()
+  bundle.installed = false
+  delete bundle.version
+  const journal = join(directory, '.dsh-glassui-updates', `${id}.json`)
+  manager.installBundle = async spec => {
+    calls.push([spec])
+    const disk = JSON.parse(await readFile(journal, 'utf8'))
+    disk.restoreAttempts = 3
+    disk.receipts = [...(disk.receipts ?? []), { kind: 'remove', id: 'kept-from-disk', at: 9 }]
+    await writeFile(journal, JSON.stringify(disk))
+    bundle.installed = true
+    bundle.version = '0.5.0'
+    return previousInstall(spec)
+  }
+  await updater.save(provenRemoval(id), true)
+  const view = await updater.reconcile(id)
+  assert.equal(calls.length, 1)
+  assert.equal(view.reason, 'restored')
+  const saved = JSON.parse(await readFile(journal, 'utf8'))
+  assert.equal(saved.restoreAttempts, 3)
+  assert.equal(
+    saved.receipts.some(item => item?.kind === 'remove' && item.id === 'kept-from-disk'),
+    true,
+  )
+})
+
+function restoreChildSource(moduleUrl) {
+  return `
+import { open, readFile, writeFile, mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { PluginUpdates, PACKAGE } from ${JSON.stringify(moduleUrl)}
+
+const root = process.env.GLASSUI_RESTORE_ROOT
+const id = process.env.GLASSUI_RESTORE_ID
+const installs = join(root, 'installs')
+const bundlesPath = join(root, 'bundles.json')
+const releasePath = join(root, 'release')
+const manager = {
+  async listBundles() {
+    return [JSON.parse(await readFile(bundlesPath, 'utf8'))]
+  },
+  async waitForInstall() {
+    return null
+  },
+  async installBundle(spec, options) {
+    await mkdir(installs, { recursive: true })
+    const marker = join(installs, randomUUID() + '.install')
+    const handle = await open(marker, 'wx')
+    await handle.close()
+    const started = Date.now()
+    for (;;) {
+      try {
+        await readFile(releasePath)
+        break
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error
+        if (Date.now() - started > 20_000) throw new Error('release-timeout')
+        await new Promise(resolve => setTimeout(resolve, 15))
+      }
+    }
+    await writeFile(
+      bundlesPath,
+      JSON.stringify({ name: PACKAGE, installed: true, enabled: options?.enabled === true, version: '0.5.0', source: spec }),
+    )
+    return {
+      changed: true,
+      application: 'applied',
+      stage: 'install',
+      target: PACKAGE,
+      bundle: PACKAGE,
+      version: '0.5.0',
+      enabled: options?.enabled === true,
+    }
+  },
+}
+const updater = new PluginUpdates({
+  manager: () => manager,
+  profileDir: root,
+  runtimeVersion: async () => '0.2.1-alpha.2',
+  version: process.env.GLASSUI_RESTORE_VERSION,
+})
+try {
+  const view = await updater.reconcile(id)
+  await writeFile(join(root, 'view-' + process.pid + '.json'), JSON.stringify({ reason: view.reason, status: view.status }))
+} catch (error) {
+  await writeFile(join(root, 'error-' + process.pid + '.txt'), String(error?.stack || error))
+  process.exitCode = 1
+} finally {
+  updater.dispose()
+}
+`
+}
+
+function waitForClose(child, timeoutMs) {
+  return new Promise(resolve => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resolve(child.exitCode)
+      return
+    }
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM')
+    }, timeoutMs)
+    child.once('close', code => {
+      clearTimeout(timer)
+      resolve(code)
+    })
+  })
+}
+
+test('two processes reconcile one removal into a single install', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'pi-restore-lock-'))
+  const children = []
+  let output = ''
+  t.after(async () => {
+    for (const child of children) {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+    }
+    await Promise.all(children.map(child => waitForClose(child, 5_000)))
+    await rm(directory, { recursive: true, force: true })
+  })
+  const id = randomUUID()
+  await mkdir(join(directory, 'installs'), { recursive: true })
+  await writeFile(
+    join(directory, 'bundles.json'),
+    JSON.stringify({ name: PACKAGE, installed: false, enabled: true, source: `github:${REPOSITORY}` }),
+  )
+  const updater = new PluginUpdates({
+    manager: () => ({
+      listBundles: async () => [],
+      installBundle: async () => {
+        throw new Error('unused')
+      },
+      waitForInstall: async () => null,
+    }),
+    profileDir: directory,
+    runtimeVersion: async () => '0.2.1-alpha.2',
+    version,
+  })
+  t.after(() => updater.dispose())
+  await updater.save(provenRemoval(id), true)
+  const script = join(directory, 'restore-child.mjs')
+  await writeFile(script, restoreChildSource(new URL('../../src/host/updates.mjs', import.meta.url).href))
+  const spawnChild = () => {
+    const child = spawn(process.execPath, [script], {
+      cwd: directory,
+      env: {
+        ...process.env,
+        GLASSUI_RESTORE_ROOT: directory,
+        GLASSUI_RESTORE_ID: id,
+        GLASSUI_RESTORE_VERSION: version,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    child.stdout.on('data', chunk => {
+      output += chunk
+    })
+    child.stderr.on('data', chunk => {
+      output += chunk
+    })
+    children.push(child)
+    return child
+  }
+  spawnChild()
+  spawnChild()
+  const installs = join(directory, 'installs')
+  const started = Date.now()
+  let names = []
+  let exited = 0
+  while (Date.now() - started < 10_000) {
+    names = await readdir(installs)
+    exited = children.filter(child => child.exitCode !== null || child.signalCode !== null).length
+    if (names.length > 1) break
+    if (names.length === 1 && exited >= 1) break
+    if (exited === 2) break
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  assert.equal(names.length, 1, output)
+  assert.equal(exited >= 1, true, output)
+  await writeFile(join(directory, 'release'), 'go')
+  const codes = await Promise.all(children.map(child => waitForClose(child, 10_000)))
+  assert.deepEqual(codes, [0, 0], output)
+  assert.equal((await readdir(installs)).length, 1, output)
+  const saved = JSON.parse(await readFile(join(directory, '.dsh-glassui-updates', `${id}.json`), 'utf8'))
+  assert.equal(saved.restoreAttempts, 1)
+  const left = await readdir(join(directory, '.dsh-glassui-updates'))
+  assert.equal(
+    left.some(name => name === `${id}.restore.lock`),
+    false,
+  )
 })
