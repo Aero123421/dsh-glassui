@@ -376,14 +376,24 @@ function UpdatesRow({ controller, t }: { controller: UpdateController; t: Transl
           role={
             ['failed', 'blocked'].includes(view.status) ||
             view.reason === 'restore-failed' ||
-            view.reason === 'restore-pending'
+            view.reason === 'restore-pending' ||
+            view.reason === 'restore-limit'
               ? 'alert'
               : 'status'
           }
         >
-          {t(view.reason === 'restore-pending' ? 'updateReason_restore-pending' : UPDATE_MESSAGES[view.status])}
+          {t(
+            view.reason === 'restore-pending' || view.reason === 'restore-offer' || view.reason === 'restore-limit'
+              ? (`updateReason_${view.reason}` as CopyKey)
+              : UPDATE_MESSAGES[view.status],
+          )}
         </p>
-        {view.reason && view.reason !== 'restore-pending' ? <p className="glassui-note">{t(reason)}</p> : null}
+        {view.reason &&
+        view.reason !== 'restore-pending' &&
+        view.reason !== 'restore-offer' &&
+        view.reason !== 'restore-limit' ? (
+          <p className="glassui-note">{t(reason)}</p>
+        ) : null}
         {view.checkedAt ? (
           <p className="glassui-note">
             {t('updateChecked')}: {new Date(view.checkedAt).toLocaleString()}
@@ -432,6 +442,18 @@ function UpdatesRow({ controller, t }: { controller: UpdateController; t: Transl
               }}
             >
               {t('updateReconcile')}
+            </button>
+          ) : null}
+          {view.reason === 'restore-offer' ? (
+            <button
+              type="button"
+              className="glassui-button"
+              disabled={busy}
+              onClick={() => {
+                void controller.restore()
+              }}
+            >
+              {t('updateRestore')}
             </button>
           ) : null}
           <a href="https://github.com/Aero123421/dsh-glassui/releases" target="_blank" rel="noopener noreferrer">

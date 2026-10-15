@@ -2109,7 +2109,7 @@ function sameSettings(a, b) {
 
 // src/host/updates.mjs
 import { createHash, randomUUID as randomUUID2 } from "node:crypto";
-import { mkdir, mkdtemp, writeFile, readFile, rename, lstat } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile, readFile, rename, lstat, readdir } from "node:fs/promises";
 import { join, resolve, sep, basename, win32 } from "node:path";
 import { gunzipSync } from "node:zlib";
 
@@ -2407,6 +2407,8 @@ function failedInstall(code = "operation-error") {
   };
 }
 var BUNDLE_LIST_ATTEMPTS = 3;
+var RESTORE_ATTEMPT_LIMIT = 3;
+var RESTORE_ATTEMPT_INTERVAL_MS = 1e4;
 async function installedCopy(manager) {
   let failed = 0;
   while (failed < BUNDLE_LIST_ATTEMPTS) {
@@ -2429,9 +2431,82 @@ function classifyRestore(restored, previous, listed) {
   if (restored?.application === "restart-required") return back ? "pending" : "failed";
   return back ? "ok" : "failed";
 }
+function appendReceipt(operation, receipt) {
+  if (!Array.isArray(operation.receipts)) operation.receipts = [];
+  if (operation.receipts.some((item) => item && item.kind === receipt.kind && item.id === receipt.id)) return;
+  operation.receipts.push(receipt);
+}
+function previousSpec(operation) {
+  const source = operation.previousSource;
+  const version = operation.previousVersion;
+  if (typeof source !== "string" || source === "" || typeof version !== "string" || version === "") return void 0;
+  return { source, enabled: operation.previousEnabled === true, version };
+}
+function removalProven(operation) {
+  if (operation.removedByUpdate !== operation.requestId) return false;
+  if (operation.status === "restart-required") return false;
+  const application = operation.result?.application;
+  if (application === "applied" || application === "restart-required") return false;
+  const receipts = Array.isArray(operation.receipts) ? operation.receipts : [];
+  const index = receipts.findIndex((item) => item?.kind === "removed-by-update" && item.id === operation.requestId);
+  const later = index >= 0 ? receipts.slice(index + 1) : receipts;
+  return !later.some((item) => item?.kind === "apply" || item?.kind === "remove");
+}
+function packageWasInstalled(operation) {
+  if (operation.restore === "ok" || operation.reason === "restored" || operation.reason === "restore-pending")
+    return true;
+  const application = operation.result?.application;
+  if (application === "applied" || application === "restart-required") return true;
+  const receipts = Array.isArray(operation.receipts) ? operation.receipts : [];
+  return receipts.some((item) => item?.kind === "apply");
+}
+function restoreLockHeld(operation, now) {
+  const lock = operation.restoreLock;
+  return Boolean(
+    lock && typeof lock.at === "number" && Number.isFinite(lock.at) && now - lock.at < RESTORE_ATTEMPT_INTERVAL_MS
+  );
+}
+function attemptsOf(operation) {
+  return Number.isSafeInteger(operation.restoreAttempts) && operation.restoreAttempts > 0 ? operation.restoreAttempts : 0;
+}
+function restorePlan(operation, { absent, installUnresolved, now, cacheDir }) {
+  if (!absent) return "skip";
+  if (operation.reason === "restored" || operation.reason === "restore-failed") return "skip";
+  const spec = previousSpec(operation);
+  if (!spec) return "skip";
+  try {
+    sourceKind(spec.source, cacheDir, spec.version);
+  } catch {
+    return "invalid-source";
+  }
+  if (installUnresolved || restoreLockHeld(operation, now)) return "inflight";
+  if (attemptsOf(operation) >= RESTORE_ATTEMPT_LIMIT) return "limit";
+  const recent = typeof operation.restoreAttemptAt === "number" && now - operation.restoreAttemptAt < RESTORE_ATTEMPT_INTERVAL_MS;
+  if (removalProven(operation) && operation.status === "unknown" && recent) return "wait";
+  if (removalProven(operation) && operation.status === "unknown") return "auto";
+  return "offer";
+}
+async function installStillElsewhere(manager, requestId) {
+  if (typeof requestId !== "string" || !UUID.test(requestId)) return true;
+  if (!manager || typeof manager.waitForInstall !== "function") return true;
+  try {
+    return !await manager.waitForInstall(updateRequestId(requestId));
+  } catch {
+    return true;
+  }
+}
 async function reinstallPrevious(manager, previous, hooks) {
   const source = previous?.source;
   if (typeof source !== "string" || source === "") return void 0;
+  if (hooks?.validateSource) {
+    try {
+      sourceKind(source, hooks.cacheDir, previous.version);
+    } catch {
+      return void 0;
+    }
+  }
+  if (typeof hooks?.blockIfIdleRequest === "string" && await installStillElsewhere(manager, hooks.blockIfIdleRequest))
+    return void 0;
   const requestId = updateRequestId();
   if (hooks?.onRestoreRequest) await hooks.onRestoreRequest(requestId, previous.version);
   let restored;
@@ -2487,6 +2562,9 @@ function settleRemoval(operation, runtimeVersion) {
     operation.reason = "reinstall";
   }
 }
+async function rememberRemoval(hooks) {
+  if (typeof hooks?.onRemoved === "function") await hooks.onRemoved();
+}
 async function installRelease(manager, spec, options, previous, hooks) {
   const installed = await manager.installBundle(spec, options);
   if (installed?.error?.code !== "already-installed" || typeof manager.removeBundle !== "function") {
@@ -2500,7 +2578,10 @@ async function installRelease(manager, spec, options, previous, hooks) {
   }
   if (removed?.error?.code === "stop-profile") {
     const listed = await installedCopy(manager);
-    if (listed.known && !listed.row) return removalNeedsRestore(manager, removed, previous, hooks);
+    if (listed.known && !listed.row) {
+      await rememberRemoval(hooks);
+      return removalNeedsRestore(manager, removed, previous, hooks);
+    }
     try {
       return { result: await manager.installBundle(spec, options), removed: false };
     } catch {
@@ -2510,9 +2591,13 @@ async function installRelease(manager, spec, options, previous, hooks) {
   if (!removalAccepted(removed)) {
     const listed = await installedCopy(manager);
     if (!listed.known) return { result: removed ?? installed, removed: true, restore: "unconfirmed" };
-    if (!listed.row) return removalNeedsRestore(manager, removed ?? installed, previous, hooks);
+    if (!listed.row) {
+      await rememberRemoval(hooks);
+      return removalNeedsRestore(manager, removed ?? installed, previous, hooks);
+    }
     return { result: removed ?? installed, removed: false };
   }
+  await rememberRemoval(hooks);
   let result;
   try {
     result = await manager.installBundle(spec, options);
@@ -2523,6 +2608,7 @@ async function installRelease(manager, spec, options, previous, hooks) {
   return {
     result,
     removed: true,
+    removalProven: true,
     ...restore ? { restore: restore.state, restoreRequestId: restore.requestId } : {}
   };
 }
@@ -2531,6 +2617,7 @@ async function removalNeedsRestore(manager, result, previous, hooks) {
   return {
     result,
     removed: true,
+    removalProven: true,
     ...restore ? { restore: restore.state, restoreRequestId: restore.requestId } : {}
   };
 }
@@ -2542,6 +2629,7 @@ var PluginUpdates = class {
     this.running = null;
     this.closed = false;
     this.abort = new AbortController();
+    this.restoreFlights = /* @__PURE__ */ new Map();
   }
   get cacheDir() {
     return this.profileDir && join(this.profileDir, ".dsh-glassui-updates");
@@ -2733,6 +2821,19 @@ var PluginUpdates = class {
           },
           previous,
           {
+            onRemoved: async () => {
+              operation.removedByUpdate = operation.requestId;
+              if (typeof operation.removedAt !== "number") operation.removedAt = Date.now();
+              appendReceipt(operation, {
+                kind: "removed-by-update",
+                id: operation.requestId,
+                at: operation.removedAt
+              });
+              try {
+                await this.save(operation);
+              } catch {
+              }
+            },
             onRestoreRequest: async (requestId, previousVersion) => {
               operation.restoreRequestId = requestId;
               operation.previousSource = previous.source;
@@ -2748,6 +2849,25 @@ var PluginUpdates = class {
         )
       );
       operation.result = safeResult(outcome.result);
+      if (outcome.removalProven) {
+        operation.removedByUpdate = operation.requestId;
+        if (typeof operation.removedAt !== "number") operation.removedAt = Date.now();
+        appendReceipt(operation, {
+          kind: "removed-by-update",
+          id: operation.requestId,
+          at: operation.removedAt
+        });
+      }
+      const application = outcome.result?.application;
+      if (application === "applied" || application === "restart-required") {
+        operation.recordedAt = Date.now();
+        appendReceipt(operation, {
+          kind: "apply",
+          id: operation.requestId,
+          at: operation.recordedAt,
+          application
+        });
+      }
       if (outcome.restore) operation.restore = outcome.restore;
       if (outcome.restoreRequestId) operation.restoreRequestId = outcome.restoreRequestId;
       if (previous.version) operation.previousVersion = previous.version;
@@ -2786,12 +2906,21 @@ var PluginUpdates = class {
       operation.reason = "interrupted";
       await this.save(operation);
     }
+    let installUnresolved = false;
     if (["installing", "unknown"].includes(operation.status) && !operation.result) {
       const manager = this.manager();
-      const result = manager && await manager.waitForInstall(requestId);
+      let result;
+      try {
+        result = manager && await manager.waitForInstall(requestId);
+      } catch {
+        result = null;
+      }
       if (result) {
         operation.result = safeResult(result);
-      } else operation.status = "unknown";
+      } else {
+        operation.status = "unknown";
+        installUnresolved = true;
+      }
     }
     let restoreResult;
     if (typeof operation.restoreRequestId === "string" && UUID.test(operation.restoreRequestId) && operation.restore !== "ok") {
@@ -2824,32 +2953,153 @@ var PluginUpdates = class {
     settleRemoval(operation, this.version);
     if (operation.status === "applied" && (operation.reason === "reinstall" || operation.reason === "restore-pending"))
       delete operation.reason;
-    if (!listFailed && bundle?.installed !== true && operation.status === "unknown") {
+    const absent = !listFailed && bundle?.installed !== true;
+    if (absent && operation.reason !== "restored" && operation.reason !== "restore-failed" && packageWasInstalled(operation))
+      appendReceipt(operation, { kind: "remove", id: operation.requestId, at: Date.now() });
+    if (absent && removalProven(operation) && await this.laterForeignReceipt(operation))
+      appendReceipt(operation, { kind: "apply", id: `foreign:${operation.requestId}`, at: Date.now() });
+    const plan = restorePlan(operation, {
+      absent,
+      installUnresolved,
+      now: Date.now(),
+      cacheDir: this.cacheDir
+    });
+    if (plan === "auto") {
       const restoredVersion = await this.restoreMissing(operation);
       if (typeof restoredVersion === "string") installed = restoredVersion;
-    }
+    } else if (plan === "inflight" && !operation.result) await this.restoreMissing(operation);
+    else if (plan === "offer") operation.reason = "restore-offer";
+    else if (plan === "limit") operation.reason = "restore-limit";
+    else if (plan === "invalid-source") operation.reason = "source";
     return { ...this.base(), ...operation, installedVersion: installed };
   }
   /**
-   * The package is confirmed absent and the journal is still `unknown`.
-   * Install the source saved before removal. A list that is still failing is
-   * not absence, so this is not called then. `restored` still requires the
-   * listed version to match the saved one.
+   * Another operation journal recorded an apply or removal after this one removed the package.
+   * An unreadable journal is treated as a later receipt so this process does not reinstall.
    * @param {object} operation
+   */
+  async laterForeignReceipt(operation) {
+    let names;
+    try {
+      names = await readdir(this.cacheDir);
+    } catch {
+      return true;
+    }
+    const receipts = Array.isArray(operation.receipts) ? operation.receipts : [];
+    const marker = receipts.find((item) => item?.kind === "removed-by-update" && item.id === operation.requestId);
+    const at = typeof marker?.at === "number" ? marker.at : typeof operation.removedAt === "number" ? operation.removedAt : 0;
+    for (const name2 of names) {
+      if (!name2.endsWith(".json") || name2 === "latest.json") continue;
+      const id = name2.slice(0, -5);
+      if (id === operation.requestId || !UUID.test(id)) continue;
+      let other;
+      try {
+        other = JSON.parse(await readFile(join(this.cacheDir, name2), "utf8"));
+      } catch {
+        return true;
+      }
+      const otherReceipts = Array.isArray(other?.receipts) ? other.receipts : [];
+      if (otherReceipts.some(
+        (item) => (item?.kind === "apply" || item?.kind === "remove") && typeof item.at === "number" && item.at > at
+      ))
+        return true;
+      const application = other?.result?.application;
+      if ((application === "applied" || application === "restart-required") && typeof other?.recordedAt === "number" && other.recordedAt > at)
+        return true;
+    }
+    return false;
+  }
+  /**
+   * Install the saved previous spec once per operation in this process.
+   * A second caller waits for that install instead of starting another.
+   * Automatic installs require a proven removal. Settings passes `manual`.
+   * @param {object} operation
+   * @param {{ manual?: boolean }} [options]
    * @returns {Promise<string | undefined>}
    */
-  async restoreMissing(operation) {
+  async restoreMissing(operation, options = {}) {
+    const id = operation.requestId;
+    if (typeof id !== "string") return void 0;
+    const existing = this.restoreFlights.get(id);
+    if (existing) {
+      const version = await existing;
+      await this.copyJournal(operation);
+      return version;
+    }
+    let release;
+    const opened = new Promise((resolve2) => {
+      release = resolve2;
+    });
+    const flight = (async () => {
+      await opened;
+      return this.restoreMissingOwned(operation, options);
+    })();
+    this.restoreFlights.set(id, flight);
+    release();
+    try {
+      return await flight;
+    } finally {
+      if (this.restoreFlights.get(id) === flight) this.restoreFlights.delete(id);
+    }
+  }
+  /**
+   * @param {object} operation
+   */
+  async copyJournal(operation) {
+    try {
+      const saved = JSON.parse(await readFile(join(this.cacheDir, `${operation.requestId}.json`), "utf8"));
+      if (saved?.requestId === operation.requestId) Object.assign(operation, saved);
+    } catch {
+    }
+  }
+  /**
+   * @param {object} operation
+   * @param {{ manual?: boolean }} options
+   * @returns {Promise<string | undefined>}
+   */
+  async restoreMissingOwned(operation, { manual = false } = {}) {
     if (this.closed) return void 0;
-    const source = operation.previousSource;
-    const version = operation.previousVersion;
-    if (typeof source !== "string" || source === "" || typeof version !== "string" || version === "") return void 0;
+    const spec = previousSpec(operation);
+    if (!spec) return void 0;
+    try {
+      sourceKind(spec.source, this.cacheDir, spec.version);
+    } catch {
+      operation.reason = "source";
+      return void 0;
+    }
+    const now = Date.now();
+    if (restoreLockHeld(operation, now)) return void 0;
+    if (attemptsOf(operation) >= RESTORE_ATTEMPT_LIMIT) {
+      operation.reason = "restore-limit";
+      return void 0;
+    }
+    const recent = typeof operation.restoreAttemptAt === "number" && now - operation.restoreAttemptAt < RESTORE_ATTEMPT_INTERVAL_MS;
+    if (!manual && recent) return void 0;
+    if (!manual && !removalProven(operation)) return void 0;
     const manager = this.manager();
     if (!manager || typeof manager.installBundle !== "function" || typeof manager.listBundles !== "function")
       return void 0;
-    const restore = await reinstallPrevious(
-      manager,
-      { source, enabled: operation.previousEnabled === true, version },
-      {
+    if (!operation.result) {
+      await reinstallPrevious(manager, spec, {
+        validateSource: true,
+        cacheDir: this.cacheDir,
+        blockIfIdleRequest: operation.requestId
+      });
+      return void 0;
+    }
+    operation.restoreLock = { at: now, id: randomUUID2() };
+    operation.restoreAttempts = attemptsOf(operation) + 1;
+    operation.restoreAttemptAt = now;
+    try {
+      await this.save(operation);
+    } catch {
+      delete operation.restoreLock;
+      return void 0;
+    }
+    try {
+      const restore = await reinstallPrevious(manager, spec, {
+        validateSource: true,
+        cacheDir: this.cacheDir,
         onRestoreRequest: async (requestId, previousVersion) => {
           operation.restoreRequestId = requestId;
           if (typeof previousVersion === "string" && previousVersion !== "") operation.previousVersion = previousVersion;
@@ -2858,25 +3108,53 @@ var PluginUpdates = class {
           } catch {
           }
         }
+      });
+      if (!restore) return void 0;
+      operation.restore = restore.state;
+      operation.restoreRequestId = restore.requestId;
+      settleRemoval(operation, this.version);
+      if (operation.status === "applied" && (operation.reason === "reinstall" || operation.reason === "restore-pending"))
+        delete operation.reason;
+      return await this.listedVersion();
+    } finally {
+      delete operation.restoreLock;
+      try {
+        await this.save(operation);
+      } catch {
       }
-    );
-    if (!restore) return void 0;
-    operation.restore = restore.state;
-    operation.restoreRequestId = restore.requestId;
-    settleRemoval(operation, this.version);
-    if (operation.status === "applied" && (operation.reason === "reinstall" || operation.reason === "restore-pending"))
-      delete operation.reason;
-    let listed;
-    try {
-      listed = (await manager.listBundles()).find((item) => item?.name === PACKAGE && item.installed);
-    } catch {
-      listed = void 0;
     }
+  }
+  /** @returns {Promise<string | undefined>} */
+  async listedVersion() {
+    const manager = this.manager();
+    if (!manager || typeof manager.listBundles !== "function") return void 0;
     try {
-      await this.save(operation);
+      const listed = (await manager.listBundles()).find((item) => item?.name === PACKAGE && item.installed);
+      return typeof listed?.version === "string" ? listed.version : void 0;
     } catch {
+      return void 0;
     }
-    return typeof listed?.version === "string" ? listed.version : void 0;
+  }
+  /**
+   * Settings asked to put the previous version back. This does not run for an
+   * automatic reconcile, and it does not report that choice as `restore-failed`.
+   * @param {unknown} requestId
+   * @param {unknown} profileKey
+   */
+  async restore(requestId, profileKey) {
+    if (!profileKey || profileKey !== this.base().profileKey) throw new Error("profile");
+    if (typeof requestId !== "string" || !UUID.test(requestId)) throw new Error("invalid-request");
+    const viewed = await this.reconcile(requestId);
+    if (viewed.reason !== "restore-offer") return viewed;
+    let operation;
+    try {
+      operation = JSON.parse(await readFile(join(this.cacheDir, `${requestId}.json`), "utf8"));
+    } catch {
+      return viewed;
+    }
+    if (operation.requestId !== requestId) return viewed;
+    const installedVersion = await this.restoreMissing(operation, { manual: true });
+    return { ...this.base(), ...operation, ...installedVersion ? { installedVersion } : {} };
   }
   dispose() {
     this.closed = true;
@@ -2915,7 +3193,7 @@ function applyUpdateRoutes(ctx, readSettings2, version) {
   });
   ctx.effect?.(() => () => updates.dispose(), "dsh-glassui: update retrieval");
   ctx.inject?.(["connection"], (child) => {
-    for (const method of ["status", "check", "begin", "reconcile"]) {
+    for (const method of ["status", "check", "begin", "reconcile", "restore"]) {
       const endpoint = `dsh-glassui/update-${method}`;
       child.connection.fetch.register({
         path: `/api/${endpoint}`,
@@ -2936,6 +3214,7 @@ function applyUpdateRoutes(ctx, readSettings2, version) {
             if (method === "status") value = await updates.status();
             else if (method === "check") value = await updates.check();
             else if (method === "reconcile") value = await updates.reconcile(payload.requestId);
+            else if (method === "restore") value = await updates.restore(payload.requestId, payload.profileKey);
             else {
               const settings = settingsOf(payload.settings);
               if (!sameSettings(readSettings2(), settings)) throw new Error("settings");

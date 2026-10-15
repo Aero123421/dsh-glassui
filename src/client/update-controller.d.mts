@@ -22,5 +22,7 @@ export class UpdateController {
   load(): Promise<void>
   check(): Promise<void>
   begin(): Promise<void>
+  /** Install the previous version when the current view offers that action. */
+  restore(): Promise<void>
   dispose(): void
 }

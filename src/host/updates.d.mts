@@ -59,11 +59,19 @@ export class PluginUpdates {
   check(): Promise<View>
   begin(id: unknown, operationId: unknown, profileKey: unknown): Promise<View>
   reconcile(requestId: unknown): Promise<View>
+  /** Install the journal's previous spec when Settings asked and reconcile offered it. */
+  restore(requestId: unknown, profileKey: unknown): Promise<View>
   dispose(): void
 }
 export const REPOSITORY: string
 export const PACKAGE: string
 export const RELEASES: string
+/** Reads of the bundle list before an unknown list is treated as not absent. */
+export const BUNDLE_LIST_ATTEMPTS: number
+/** Reinstalls recorded on the operation before automatic and manual installs stop. */
+export const RESTORE_ATTEMPT_LIMIT: number
+/** Minimum gap between automatic reinstalls. */
+export const RESTORE_ATTEMPT_INTERVAL_MS: number
 export function semanticVersion(value: unknown): { numbers: bigint[]; pre?: string[] }
 export function compareVersions(left: string, right: string): number
 export function boundedFetch(
@@ -90,8 +98,16 @@ export function installRelease(
   previous?: { source?: string; enabled?: boolean; version?: string },
   hooks?: {
     onRestoreRequest?: (requestId: string, previousVersion?: string) => void | Promise<void>
+    /** The removal is confirmed. The journal can record that this operation removed the package. */
+    onRemoved?: () => void | Promise<void>
   },
-): Promise<{ result: ChangeResult; removed: boolean; restore?: RestoreState; restoreRequestId?: string }>
+): Promise<{
+  result: ChangeResult
+  removed: boolean
+  removalProven?: boolean
+  restore?: RestoreState
+  restoreRequestId?: string
+}>
 export function settleRemoval(
   operation: {
     status?: string

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, writeFile, readFile, rename, lstat } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile, readFile, rename, lstat, readdir } from 'node:fs/promises'
 import { join, resolve, sep, basename, win32 } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 import { updateRequestId } from './update-request-id.ts'
@@ -374,6 +374,13 @@ function failedInstall(code = 'operation-error') {
 
 /** Reads of the bundle list. A later success still counts; a persistent failure does not. */
 export const BUNDLE_LIST_ATTEMPTS = 3
+/**
+ * Reinstalls of a missing copy, automatic or requested from Settings.
+ * The count is stored on the operation so a restart does not start over.
+ */
+export const RESTORE_ATTEMPT_LIMIT = 3
+/** Minimum time between automatic reinstalls. A Settings reinstall does not wait for this gap. */
+export const RESTORE_ATTEMPT_INTERVAL_MS = 10_000
 
 /**
  * @param {Manager} manager
@@ -421,8 +428,113 @@ function classifyRestore(restored, previous, listed) {
   return back ? 'ok' : 'failed'
 }
 /**
+ * @param {object} operation
+ * @param {{ kind: string, id: string, at?: number, application?: string }} receipt
+ */
+function appendReceipt(operation, receipt) {
+  if (!Array.isArray(operation.receipts)) operation.receipts = []
+  if (operation.receipts.some(item => item && item.kind === receipt.kind && item.id === receipt.id)) return
+  operation.receipts.push(receipt)
+}
+/**
+ * @param {object} operation
+ * @returns {{ source: string, enabled: boolean, version: string } | undefined}
+ */
+function previousSpec(operation) {
+  const source = operation.previousSource
+  const version = operation.previousVersion
+  if (typeof source !== 'string' || source === '' || typeof version !== 'string' || version === '') return undefined
+  return { source, enabled: operation.previousEnabled === true, version }
+}
+/**
+ * This operation removed the package, and no later apply or removal was recorded.
+ * `restart-required` and `applied` are later outcomes: the update finished.
+ * @param {object} operation
+ */
+function removalProven(operation) {
+  if (operation.removedByUpdate !== operation.requestId) return false
+  if (operation.status === 'restart-required') return false
+  const application = operation.result?.application
+  if (application === 'applied' || application === 'restart-required') return false
+  const receipts = Array.isArray(operation.receipts) ? operation.receipts : []
+  const index = receipts.findIndex(item => item?.kind === 'removed-by-update' && item.id === operation.requestId)
+  const later = index >= 0 ? receipts.slice(index + 1) : receipts
+  return !later.some(item => item?.kind === 'apply' || item?.kind === 'remove')
+}
+/**
+ * The package was present after this operation, so a later absence is someone else's removal.
+ * @param {object} operation
+ */
+function packageWasInstalled(operation) {
+  if (operation.restore === 'ok' || operation.reason === 'restored' || operation.reason === 'restore-pending')
+    return true
+  const application = operation.result?.application
+  if (application === 'applied' || application === 'restart-required') return true
+  const receipts = Array.isArray(operation.receipts) ? operation.receipts : []
+  return receipts.some(item => item?.kind === 'apply')
+}
+/**
+ * @param {object} operation
+ * @param {number} now
+ */
+function restoreLockHeld(operation, now) {
+  const lock = operation.restoreLock
+  return Boolean(
+    lock && typeof lock.at === 'number' && Number.isFinite(lock.at) && now - lock.at < RESTORE_ATTEMPT_INTERVAL_MS,
+  )
+}
+/**
+ * @param {object} operation
+ */
+function attemptsOf(operation) {
+  return Number.isSafeInteger(operation.restoreAttempts) && operation.restoreAttempts > 0
+    ? operation.restoreAttempts
+    : 0
+}
+/**
+ * @param {object} operation
+ * @param {{ absent: boolean, installUnresolved: boolean, now: number, cacheDir: string | undefined }} facts
+ * @returns {'skip' | 'auto' | 'offer' | 'limit' | 'inflight' | 'wait' | 'invalid-source'}
+ */
+function restorePlan(operation, { absent, installUnresolved, now, cacheDir }) {
+  if (!absent) return 'skip'
+  if (operation.reason === 'restored' || operation.reason === 'restore-failed') return 'skip'
+  const spec = previousSpec(operation)
+  if (!spec) return 'skip'
+  try {
+    sourceKind(spec.source, cacheDir, spec.version)
+  } catch {
+    return 'invalid-source'
+  }
+  if (installUnresolved || restoreLockHeld(operation, now)) return 'inflight'
+  if (attemptsOf(operation) >= RESTORE_ATTEMPT_LIMIT) return 'limit'
+  const recent =
+    typeof operation.restoreAttemptAt === 'number' && now - operation.restoreAttemptAt < RESTORE_ATTEMPT_INTERVAL_MS
+  if (removalProven(operation) && operation.status === 'unknown' && recent) return 'wait'
+  if (removalProven(operation) && operation.status === 'unknown') return 'auto'
+  return 'offer'
+}
+/**
+ * `waitForInstall` returns null when this process has no active request.
+ * Completed results are not retained, so null does not prove another process finished.
+ * @param {Manager | undefined} manager
+ * @param {string} requestId
+ */
+async function installStillElsewhere(manager, requestId) {
+  if (typeof requestId !== 'string' || !UUID.test(requestId)) return true
+  if (!manager || typeof manager.waitForInstall !== 'function') return true
+  try {
+    return !(await manager.waitForInstall(updateRequestId(requestId)))
+  } catch {
+    return true
+  }
+}
+/**
  * Install the spec captured before removal. The request id is published before
  * `installBundle` so a restart can reconcile that id if this process stops.
+ * A journal source is checked with the current source rules before that install.
+ * When `blockIfIdleRequest` is set, a null `waitForInstall` refuses the install:
+ * another process may still be installing that request.
  * @param {Manager} manager
  * @param {{ source?: string, enabled?: boolean, version?: string } | undefined} previous
  * @param {RestoreHooks | undefined} hooks
@@ -431,6 +543,15 @@ function classifyRestore(restored, previous, listed) {
 async function reinstallPrevious(manager, previous, hooks) {
   const source = previous?.source
   if (typeof source !== 'string' || source === '') return undefined
+  if (hooks?.validateSource) {
+    try {
+      sourceKind(source, hooks.cacheDir, previous.version)
+    } catch {
+      return undefined
+    }
+  }
+  if (typeof hooks?.blockIfIdleRequest === 'string' && (await installStillElsewhere(manager, hooks.blockIfIdleRequest)))
+    return undefined
   const requestId = updateRequestId()
   if (hooks?.onRestoreRequest) await hooks.onRestoreRequest(requestId, previous.version)
   let restored
@@ -527,12 +648,17 @@ export function settleRemoval(operation, runtimeVersion) {
  * The same restore runs when the new install returns `failed`, `cancelled`, or
  * `overridden` and the package is absent. The restore request id is the one
  * `hooks.onRestoreRequest` observed before that `installBundle`.
+ * A confirmed removal calls `hooks.onRemoved` before the follow-up install so the
+ * journal can show that this operation removed the package.
  * @param {Manager} manager
  * @param {string} spec
  * @param {import('@deepseek-ai/dsh-plugin-manager/types').InstallBundleOptions} options
  * @param {{ source?: string, enabled?: boolean, version?: string } | undefined} [previous]
- * @param {{ onRestoreRequest?: (requestId: string, previousVersion?: string) => Promise<void> | void } | undefined} [hooks]
+ * @param {{ onRestoreRequest?: (requestId: string, previousVersion?: string) => Promise<void> | void, onRemoved?: () => Promise<void> | void } | undefined} [hooks]
  */
+async function rememberRemoval(hooks) {
+  if (typeof hooks?.onRemoved === 'function') await hooks.onRemoved()
+}
 export async function installRelease(manager, spec, options, previous, hooks) {
   const installed = await manager.installBundle(spec, options)
   if (installed?.error?.code !== 'already-installed' || typeof manager.removeBundle !== 'function') {
@@ -547,7 +673,10 @@ export async function installRelease(manager, spec, options, previous, hooks) {
   if (removed?.error?.code === 'stop-profile') {
     const listed = await installedCopy(manager)
     // `stop-profile` leaves the package installed. Restore only when a list proves it is gone.
-    if (listed.known && !listed.row) return removalNeedsRestore(manager, removed, previous, hooks)
+    if (listed.known && !listed.row) {
+      await rememberRemoval(hooks)
+      return removalNeedsRestore(manager, removed, previous, hooks)
+    }
     try {
       return { result: await manager.installBundle(spec, options), removed: false }
     } catch {
@@ -557,9 +686,13 @@ export async function installRelease(manager, spec, options, previous, hooks) {
   if (!removalAccepted(removed)) {
     const listed = await installedCopy(manager)
     if (!listed.known) return { result: removed ?? installed, removed: true, restore: 'unconfirmed' }
-    if (!listed.row) return removalNeedsRestore(manager, removed ?? installed, previous, hooks)
+    if (!listed.row) {
+      await rememberRemoval(hooks)
+      return removalNeedsRestore(manager, removed ?? installed, previous, hooks)
+    }
     return { result: removed ?? installed, removed: false }
   }
+  await rememberRemoval(hooks)
   let result
   try {
     result = await manager.installBundle(spec, options)
@@ -570,6 +703,7 @@ export async function installRelease(manager, spec, options, previous, hooks) {
   return {
     result,
     removed: true,
+    removalProven: true,
     ...(restore ? { restore: restore.state, restoreRequestId: restore.requestId } : {}),
   }
 }
@@ -584,6 +718,7 @@ async function removalNeedsRestore(manager, result, previous, hooks) {
   return {
     result,
     removed: true,
+    removalProven: true,
     ...(restore ? { restore: restore.state, restoreRequestId: restore.requestId } : {}),
   }
 }
@@ -597,6 +732,8 @@ export class PluginUpdates {
     this.running = null
     this.closed = false
     this.abort = new AbortController()
+    /** @type {Map<string, Promise<string | undefined>>} */
+    this.restoreFlights = new Map()
   }
   get cacheDir() {
     return this.profileDir && join(this.profileDir, '.dsh-glassui-updates')
@@ -815,6 +952,20 @@ export class PluginUpdates {
           },
           previous,
           {
+            onRemoved: async () => {
+              operation.removedByUpdate = operation.requestId
+              if (typeof operation.removedAt !== 'number') operation.removedAt = Date.now()
+              appendReceipt(operation, {
+                kind: 'removed-by-update',
+                id: operation.requestId,
+                at: operation.removedAt,
+              })
+              try {
+                await this.save(operation)
+              } catch {
+                // execute writes the marker again after installRelease returns.
+              }
+            },
             onRestoreRequest: async (requestId, previousVersion) => {
               operation.restoreRequestId = requestId
               operation.previousSource = previous.source
@@ -831,6 +982,25 @@ export class PluginUpdates {
         ),
       )
       operation.result = safeResult(outcome.result)
+      if (outcome.removalProven) {
+        operation.removedByUpdate = operation.requestId
+        if (typeof operation.removedAt !== 'number') operation.removedAt = Date.now()
+        appendReceipt(operation, {
+          kind: 'removed-by-update',
+          id: operation.requestId,
+          at: operation.removedAt,
+        })
+      }
+      const application = outcome.result?.application
+      if (application === 'applied' || application === 'restart-required') {
+        operation.recordedAt = Date.now()
+        appendReceipt(operation, {
+          kind: 'apply',
+          id: operation.requestId,
+          at: operation.recordedAt,
+          application,
+        })
+      }
       if (outcome.restore) operation.restore = outcome.restore
       if (outcome.restoreRequestId) operation.restoreRequestId = outcome.restoreRequestId
       if (previous.version) operation.previousVersion = previous.version
@@ -870,13 +1040,23 @@ export class PluginUpdates {
       operation.reason = 'interrupted'
       await this.save(operation)
     }
+    let installUnresolved = false
     if (['installing', 'unknown'].includes(operation.status) && !operation.result) {
       const manager = this.manager()
-      const result = manager && (await manager.waitForInstall(requestId))
+      let result
+      try {
+        result = manager && (await manager.waitForInstall(requestId))
+      } catch {
+        result = null
+      }
       if (result) {
         operation.result = safeResult(result)
         // Verify the actual installed bundle below before reporting success.
-      } else operation.status = 'unknown'
+      } else {
+        // Null is not a finished install. Another process may still be installing this request.
+        operation.status = 'unknown'
+        installUnresolved = true
+      }
     }
     let restoreResult
     if (
@@ -923,32 +1103,169 @@ export class PluginUpdates {
     settleRemoval(operation, this.version)
     if (operation.status === 'applied' && (operation.reason === 'reinstall' || operation.reason === 'restore-pending'))
       delete operation.reason
-    if (!listFailed && bundle?.installed !== true && operation.status === 'unknown') {
+    const absent = !listFailed && bundle?.installed !== true
+    if (
+      absent &&
+      operation.reason !== 'restored' &&
+      operation.reason !== 'restore-failed' &&
+      packageWasInstalled(operation)
+    )
+      appendReceipt(operation, { kind: 'remove', id: operation.requestId, at: Date.now() })
+    if (absent && removalProven(operation) && (await this.laterForeignReceipt(operation)))
+      appendReceipt(operation, { kind: 'apply', id: `foreign:${operation.requestId}`, at: Date.now() })
+    const plan = restorePlan(operation, {
+      absent,
+      installUnresolved,
+      now: Date.now(),
+      cacheDir: this.cacheDir,
+    })
+    if (plan === 'auto') {
       const restoredVersion = await this.restoreMissing(operation)
       if (typeof restoredVersion === 'string') installed = restoredVersion
-    }
+    } else if (plan === 'inflight' && !operation.result) await this.restoreMissing(operation)
+    else if (plan === 'offer') operation.reason = 'restore-offer'
+    else if (plan === 'limit') operation.reason = 'restore-limit'
+    else if (plan === 'invalid-source') operation.reason = 'source'
     return { ...this.base(), ...operation, installedVersion: installed }
   }
   /**
-   * The package is confirmed absent and the journal is still `unknown`.
-   * Install the source saved before removal. A list that is still failing is
-   * not absence, so this is not called then. `restored` still requires the
-   * listed version to match the saved one.
+   * Another operation journal recorded an apply or removal after this one removed the package.
+   * An unreadable journal is treated as a later receipt so this process does not reinstall.
    * @param {object} operation
+   */
+  async laterForeignReceipt(operation) {
+    let names
+    try {
+      names = await readdir(this.cacheDir)
+    } catch {
+      return true
+    }
+    const receipts = Array.isArray(operation.receipts) ? operation.receipts : []
+    const marker = receipts.find(item => item?.kind === 'removed-by-update' && item.id === operation.requestId)
+    const at =
+      typeof marker?.at === 'number' ? marker.at : typeof operation.removedAt === 'number' ? operation.removedAt : 0
+    for (const name of names) {
+      if (!name.endsWith('.json') || name === 'latest.json') continue
+      const id = name.slice(0, -5)
+      if (id === operation.requestId || !UUID.test(id)) continue
+      let other
+      try {
+        other = JSON.parse(await readFile(join(this.cacheDir, name), 'utf8'))
+      } catch {
+        return true
+      }
+      const otherReceipts = Array.isArray(other?.receipts) ? other.receipts : []
+      if (
+        otherReceipts.some(
+          item => (item?.kind === 'apply' || item?.kind === 'remove') && typeof item.at === 'number' && item.at > at,
+        )
+      )
+        return true
+      const application = other?.result?.application
+      if (
+        (application === 'applied' || application === 'restart-required') &&
+        typeof other?.recordedAt === 'number' &&
+        other.recordedAt > at
+      )
+        return true
+    }
+    return false
+  }
+  /**
+   * Install the saved previous spec once per operation in this process.
+   * A second caller waits for that install instead of starting another.
+   * Automatic installs require a proven removal. Settings passes `manual`.
+   * @param {object} operation
+   * @param {{ manual?: boolean }} [options]
    * @returns {Promise<string | undefined>}
    */
-  async restoreMissing(operation) {
+  async restoreMissing(operation, options = {}) {
+    const id = operation.requestId
+    if (typeof id !== 'string') return undefined
+    const existing = this.restoreFlights.get(id)
+    if (existing) {
+      const version = await existing
+      await this.copyJournal(operation)
+      return version
+    }
+    let release
+    const opened = new Promise(resolve => {
+      release = resolve
+    })
+    const flight = (async () => {
+      await opened
+      return this.restoreMissingOwned(operation, options)
+    })()
+    this.restoreFlights.set(id, flight)
+    release()
+    try {
+      return await flight
+    } finally {
+      if (this.restoreFlights.get(id) === flight) this.restoreFlights.delete(id)
+    }
+  }
+  /**
+   * @param {object} operation
+   */
+  async copyJournal(operation) {
+    try {
+      const saved = JSON.parse(await readFile(join(this.cacheDir, `${operation.requestId}.json`), 'utf8'))
+      if (saved?.requestId === operation.requestId) Object.assign(operation, saved)
+    } catch {
+      // The owner still returns the version it observed.
+    }
+  }
+  /**
+   * @param {object} operation
+   * @param {{ manual?: boolean }} options
+   * @returns {Promise<string | undefined>}
+   */
+  async restoreMissingOwned(operation, { manual = false } = {}) {
     if (this.closed) return undefined
-    const source = operation.previousSource
-    const version = operation.previousVersion
-    if (typeof source !== 'string' || source === '' || typeof version !== 'string' || version === '') return undefined
+    const spec = previousSpec(operation)
+    if (!spec) return undefined
+    try {
+      sourceKind(spec.source, this.cacheDir, spec.version)
+    } catch {
+      operation.reason = 'source'
+      return undefined
+    }
+    const now = Date.now()
+    if (restoreLockHeld(operation, now)) return undefined
+    if (attemptsOf(operation) >= RESTORE_ATTEMPT_LIMIT) {
+      operation.reason = 'restore-limit'
+      return undefined
+    }
+    const recent =
+      typeof operation.restoreAttemptAt === 'number' && now - operation.restoreAttemptAt < RESTORE_ATTEMPT_INTERVAL_MS
+    if (!manual && recent) return undefined
+    if (!manual && !removalProven(operation)) return undefined
     const manager = this.manager()
     if (!manager || typeof manager.installBundle !== 'function' || typeof manager.listBundles !== 'function')
       return undefined
-    const restore = await reinstallPrevious(
-      manager,
-      { source, enabled: operation.previousEnabled === true, version },
-      {
+    if (!operation.result) {
+      // No saved outcome. `reinstallPrevious` refuses when this process has no active request,
+      // because another process may still be installing it. Do not start a second install.
+      await reinstallPrevious(manager, spec, {
+        validateSource: true,
+        cacheDir: this.cacheDir,
+        blockIfIdleRequest: operation.requestId,
+      })
+      return undefined
+    }
+    operation.restoreLock = { at: now, id: randomUUID() }
+    operation.restoreAttempts = attemptsOf(operation) + 1
+    operation.restoreAttemptAt = now
+    try {
+      await this.save(operation)
+    } catch {
+      delete operation.restoreLock
+      return undefined
+    }
+    try {
+      const restore = await reinstallPrevious(manager, spec, {
+        validateSource: true,
+        cacheDir: this.cacheDir,
         onRestoreRequest: async (requestId, previousVersion) => {
           operation.restoreRequestId = requestId
           if (typeof previousVersion === 'string' && previousVersion !== '') operation.previousVersion = previousVersion
@@ -958,26 +1275,57 @@ export class PluginUpdates {
             // The id remains on the operation for the journal write below.
           }
         },
-      },
-    )
-    if (!restore) return undefined
-    operation.restore = restore.state
-    operation.restoreRequestId = restore.requestId
-    settleRemoval(operation, this.version)
-    if (operation.status === 'applied' && (operation.reason === 'reinstall' || operation.reason === 'restore-pending'))
-      delete operation.reason
-    let listed
-    try {
-      listed = (await manager.listBundles()).find(item => item?.name === PACKAGE && item.installed)
-    } catch {
-      listed = undefined
+      })
+      if (!restore) return undefined
+      operation.restore = restore.state
+      operation.restoreRequestId = restore.requestId
+      settleRemoval(operation, this.version)
+      if (
+        operation.status === 'applied' &&
+        (operation.reason === 'reinstall' || operation.reason === 'restore-pending')
+      )
+        delete operation.reason
+      return await this.listedVersion()
+    } finally {
+      delete operation.restoreLock
+      try {
+        await this.save(operation)
+      } catch {
+        // The returned view still reports this attempt. The next reconcile reads the disk copy.
+      }
     }
+  }
+  /** @returns {Promise<string | undefined>} */
+  async listedVersion() {
+    const manager = this.manager()
+    if (!manager || typeof manager.listBundles !== 'function') return undefined
     try {
-      await this.save(operation)
+      const listed = (await manager.listBundles()).find(item => item?.name === PACKAGE && item.installed)
+      return typeof listed?.version === 'string' ? listed.version : undefined
     } catch {
-      // The returned view still reports this attempt. The next reconcile reads the disk copy.
+      return undefined
     }
-    return typeof listed?.version === 'string' ? listed.version : undefined
+  }
+  /**
+   * Settings asked to put the previous version back. This does not run for an
+   * automatic reconcile, and it does not report that choice as `restore-failed`.
+   * @param {unknown} requestId
+   * @param {unknown} profileKey
+   */
+  async restore(requestId, profileKey) {
+    if (!profileKey || profileKey !== this.base().profileKey) throw new Error('profile')
+    if (typeof requestId !== 'string' || !UUID.test(requestId)) throw new Error('invalid-request')
+    const viewed = await this.reconcile(requestId)
+    if (viewed.reason !== 'restore-offer') return viewed
+    let operation
+    try {
+      operation = JSON.parse(await readFile(join(this.cacheDir, `${requestId}.json`), 'utf8'))
+    } catch {
+      return viewed
+    }
+    if (operation.requestId !== requestId) return viewed
+    const installedVersion = await this.restoreMissing(operation, { manual: true })
+    return { ...this.base(), ...operation, ...(installedVersion ? { installedVersion } : {}) }
   }
   dispose() {
     this.closed = true
