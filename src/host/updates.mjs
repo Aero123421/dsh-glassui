@@ -383,7 +383,10 @@ export const RESTORE_ATTEMPT_LIMIT = 3
 export const RESTORE_ATTEMPT_INTERVAL_MS = 10_000
 /** How long a restore lock stays valid without renewal. */
 const RESTORE_LOCK_TTL_MS = 60_000
-/** How often the holder extends the lock while `installBundle` runs. */
+/**
+ * How often the holder extends the lock while it can run timers.
+ * A call that blocks the event loop does not renew; the install record covers that gap.
+ */
 const RESTORE_LOCK_RENEW_MS = 15_000
 /** Clock skew allowed past `Date.now()` before a future expiry is treated as not held. */
 const RESTORE_LOCK_SKEW_MS = 5_000
@@ -528,6 +531,89 @@ function sameFile(left, right) {
   return Boolean(left && right && left.ino && right.ino && left.dev === right.dev && left.ino === right.ino)
 }
 /**
+ * Rename `path` only when it is still `expected`.
+ * If a different file lands on `destination`, link it back onto `path` when that path is free.
+ * @param {string} path
+ * @param {string} destination
+ * @param {import('node:fs').Stats} expected
+ * @returns {Promise<boolean>}
+ */
+export async function renameVerified(path, destination, expected) {
+  let current
+  try {
+    current = await lstat(path)
+  } catch {
+    return false
+  }
+  if (current.isSymbolicLink() || !sameFile(current, expected)) return false
+  try {
+    await rename(path, destination)
+  } catch {
+    return false
+  }
+  let moved
+  try {
+    moved = await lstat(destination)
+  } catch {
+    return false
+  }
+  if (sameFile(moved, expected)) return true
+  try {
+    await link(destination, path)
+    await rm(destination, { force: true })
+  } catch {
+    // `path` belongs to someone else. Leave the displaced file at `destination`.
+  }
+  return false
+}
+/**
+ * @param {unknown} value
+ * @returns {{ requestId: string, owner: string, startedAt: number } | null}
+ */
+function installRecordOf(value) {
+  if (!value || typeof value !== 'object') return null
+  const record = /** @type {{ requestId?: unknown, owner?: unknown, startedAt?: unknown }} */ (value)
+  if (typeof record.requestId !== 'string' || !UUID.test(record.requestId)) return null
+  if (typeof record.owner !== 'string' || !UUID.test(record.owner)) return null
+  if (typeof record.startedAt !== 'number' || !Number.isFinite(record.startedAt)) return null
+  return { requestId: record.requestId, owner: record.owner, startedAt: record.startedAt }
+}
+/**
+ * Moved-aside lock files. A live `${requestId}.restore.lock` does not match.
+ * @param {string} name
+ */
+function isLockGrave(name) {
+  return name.includes('.restore.lock.') && (name.endsWith('.stale') || name.endsWith('.release'))
+}
+/**
+ * Delete lock graves older than the lease lifetime. Live lock files stay.
+ * @param {string} directory
+ */
+async function sweepLockGraves(directory) {
+  let names
+  try {
+    names = await readdir(directory)
+  } catch {
+    return
+  }
+  const cutoff = Date.now() - RESTORE_LOCK_TTL_MS - RESTORE_LOCK_SKEW_MS
+  await Promise.all(
+    names.map(async name => {
+      if (!isLockGrave(name)) return
+      const path = join(directory, name)
+      let stat
+      try {
+        stat = await lstat(path)
+      } catch {
+        return
+      }
+      if (!stat.isFile() || stat.isSymbolicLink()) return
+      if (stat.mtimeMs > cutoff) return
+      await rm(path, { force: true }).catch(() => {})
+    }),
+  )
+}
+/**
  * @param {import('node:fs/promises').FileHandle} handle
  * @param {string} body
  */
@@ -622,6 +708,20 @@ function absorbMonotonic(operation, disk) {
   operation.observedPresent = Boolean(disk.observedPresent || operation.observedPresent)
   operation.receipts = unionReceipts(disk.receipts, operation.receipts)
   delete operation.restoreLock
+  const settledId = typeof operation.restoreInstallSettledId === 'string' ? operation.restoreInstallSettledId : ''
+  const drop = operation.restoreInstallDrop === true
+  delete operation.restoreInstallSettledId
+  delete operation.restoreInstallDrop
+  const memory = installRecordOf(operation.restoreInstall)
+  const stored = installRecordOf(disk.restoreInstall)
+  const diskPresent = disk.restoreInstall != null
+  const clearing = operation.restoreInstall === null && UUID.test(settledId)
+  if (drop) delete operation.restoreInstall
+  else if (clearing && (!diskPresent || stored?.requestId === settledId)) delete operation.restoreInstall
+  else if (stored && memory) operation.restoreInstall = stored.startedAt <= memory.startedAt ? stored : memory
+  else if (diskPresent && !memory) operation.restoreInstall = stored ?? disk.restoreInstall
+  else if (memory) operation.restoreInstall = memory
+  else delete operation.restoreInstall
 }
 /**
  * @param {Manager} manager
@@ -646,12 +746,12 @@ function attemptsOf(operation) {
 }
 /**
  * @param {object} operation
- * @param {{ absent: boolean, installUnresolved: boolean, now: number, cacheDir: string | undefined, lockHeld?: boolean, directoryUnread?: boolean }} facts
+ * @param {{ absent: boolean, installUnresolved: boolean, now: number, cacheDir: string | undefined, lockHeld?: boolean, directoryUnread?: boolean, priorUnsettled?: boolean }} facts
  * @returns {'skip' | 'auto' | 'offer' | 'limit' | 'inflight' | 'wait' | 'invalid-source'}
  */
 function restorePlan(
   operation,
-  { absent, installUnresolved, now, cacheDir, lockHeld = false, directoryUnread = false },
+  { absent, installUnresolved, now, cacheDir, lockHeld = false, directoryUnread = false, priorUnsettled = false },
 ) {
   if (!absent) return 'skip'
   if (operation.reason === 'restored' || operation.reason === 'restore-failed') return 'skip'
@@ -664,6 +764,7 @@ function restorePlan(
   }
   if (lockHeld) return 'inflight'
   if (attemptsOf(operation) >= RESTORE_ATTEMPT_LIMIT) return 'limit'
+  if (priorUnsettled) return 'offer'
   const recent =
     typeof operation.restoreAttemptAt === 'number' && now - operation.restoreAttemptAt < RESTORE_ATTEMPT_INTERVAL_MS
   const proven = removalProven(operation) && operation.status === 'unknown'
@@ -693,7 +794,10 @@ async function installStillElsewhere(manager, requestId) {
  * When `blockIfIdleRequest` is set, a null `waitForInstall` refuses the install:
  * another process may still be installing that request.
  * `confirmAbsent` runs after the restore request is recorded and immediately before
- * `installBundle`. A present package or a failed list does not install.
+ * the install record is written. A present package or a failed list does not install.
+ * `noteInstallStart` records that request id before `installBundle`. A later process
+ * does not install over an unsettled record. If the record cannot be saved, or the
+ * lock is already lost, this call does not install.
  * @param {Manager} manager
  * @param {{ source?: string, enabled?: boolean, version?: string } | undefined} previous
  * @param {RestoreHooks | undefined} hooks
@@ -715,7 +819,9 @@ async function reinstallPrevious(manager, previous, hooks) {
   if (hooks?.onRestoreRequest) await hooks.onRestoreRequest(requestId, previous.version)
   if (hooks?.stillOwned && !(await hooks.stillOwned())) return undefined
   if (hooks?.confirmAbsent && !(await hooks.confirmAbsent())) return undefined
+  if (hooks?.noteInstallStart && !(await hooks.noteInstallStart(requestId))) return undefined
   if (hooks?.abandoned?.()) return undefined
+  if (hooks?.stillOwned && !(await hooks.stillOwned())) return undefined
   let restored
   try {
     restored = await manager.installBundle(source, {
@@ -1268,7 +1374,11 @@ export class PluginUpdates {
     const absent = !listFailed && bundle?.installed !== true
     const sawPresent = !listFailed && bundle?.installed === true
     const presenceChanged = sawPresent && operation.observedPresent !== true
-    if (sawPresent) operation.observedPresent = true
+    if (sawPresent) {
+      operation.observedPresent = true
+      if (operation.restoreInstall != null) this.markInstallFinished(operation)
+    }
+    if (this.cacheDir) await sweepLockGraves(this.cacheDir)
     const receiptsBefore = Array.isArray(operation.receipts) ? operation.receipts.length : 0
     if (
       absent &&
@@ -1285,6 +1395,35 @@ export class PluginUpdates {
       else if (foreign === 'unreadable') directoryUnread = true
     }
     const receiptAdded = (Array.isArray(operation.receipts) ? operation.receipts.length : 0) > receiptsBefore
+    let priorUnsettled = false
+    if (absent && operation.restoreInstall != null && operation.restore !== 'ok' && operation.reason !== 'restored') {
+      const record = installRecordOf(operation.restoreInstall)
+      let prior = null
+      if (record) {
+        try {
+          const manager = this.manager()
+          prior =
+            manager && typeof manager.waitForInstall === 'function'
+              ? await manager.waitForInstall(record.requestId)
+              : null
+        } catch {
+          prior = null
+        }
+      }
+      if (prior && record) {
+        operation.restore = classifyRestore(
+          prior,
+          { version: operation.previousVersion },
+          {
+            known: !listFailed,
+            row: !listFailed && bundle?.installed ? bundle : null,
+          },
+        )
+        operation.restoreRequestId = record.requestId
+        settleRemoval(operation, this.version)
+        this.markInstallFinished(operation)
+      } else priorUnsettled = true
+    }
     const lockHeld = journalLockHeld(operation, Date.now()) || (await this.fileLockHeld(operation.requestId))
     const plan = restorePlan(operation, {
       absent,
@@ -1293,8 +1432,13 @@ export class PluginUpdates {
       cacheDir: this.cacheDir,
       lockHeld,
       directoryUnread,
+      priorUnsettled,
     })
-    if ((presenceChanged || receiptAdded) && plan !== 'auto') await this.persistRestoreJournal(operation)
+    const journalTouched =
+      presenceChanged || receiptAdded || operation.restoreInstallSettledId || operation.restoreInstallDrop === true
+    if (journalTouched && plan !== 'auto') await this.persistRestoreJournal(operation)
+    delete operation.restoreInstallSettledId
+    delete operation.restoreInstallDrop
     if (plan === 'auto') {
       const restoredVersion = await this.restoreMissing(operation)
       if (typeof restoredVersion === 'string') installed = restoredVersion
@@ -1305,7 +1449,8 @@ export class PluginUpdates {
   }
   /**
    * Another operation journal recorded an apply or removal after this one removed the package.
-   * One unreadable sibling is renamed aside and skipped. If the directory itself cannot be
+   * One unreadable sibling is read again and, if it is still broken, renamed aside under a
+   * name that includes the time and a random id. If the directory itself cannot be
    * read, this pass does not treat that as a later receipt for every operation.
    * @param {object} operation
    * @returns {Promise<boolean | 'unreadable'>}
@@ -1454,6 +1599,7 @@ export class PluginUpdates {
       if (presence !== 'absent') {
         if (presence === 'present') {
           operation.observedPresent = true
+          if (operation.restoreInstall != null) this.markInstallFinished(operation)
           try {
             await this.saveMerged(operation)
           } catch {
@@ -1463,6 +1609,9 @@ export class PluginUpdates {
         }
         return undefined
       }
+      const pending = await this.blockOnUnsettledInstall(operation, manager, manual)
+      if (pending === 'settled') return await this.listedVersion()
+      if (pending === 'offer') return undefined
       operation.restoreAttempts = attemptsOf(operation) + 1
       operation.restoreAttemptAt = now
       delete operation.restoreLock
@@ -1481,6 +1630,28 @@ export class PluginUpdates {
           return ok
         },
         confirmAbsent: async () => (await listedPackage(manager)) === 'absent',
+        noteInstallStart: async requestId => {
+          if (lock.lost) return false
+          if (!(await this.renewRestoreLock(lock))) {
+            lock.lost = true
+            return false
+          }
+          operation.restoreInstall = { requestId, owner: lock.owner, startedAt: Date.now() }
+          operation.restoreRequestId = requestId
+          try {
+            await this.saveMerged(operation)
+          } catch {
+            delete operation.restoreInstall
+            return false
+          }
+          const kept = installRecordOf(operation.restoreInstall)
+          if (!manual && (!kept || kept.requestId !== requestId)) return false
+          if (!(await this.renewRestoreLock(lock))) {
+            lock.lost = true
+            return false
+          }
+          return true
+        },
         abandoned: () => lock.lost === true,
         onRestoreRequest: async (requestId, previousVersion) => {
           operation.restoreRequestId = requestId
@@ -1501,15 +1672,116 @@ export class PluginUpdates {
         (operation.reason === 'reinstall' || operation.reason === 'restore-pending')
       )
         delete operation.reason
-      try {
-        await this.saveMerged(operation)
-      } catch {
-        // The returned view still reports this attempt. The next reconcile reads the disk copy.
-      }
+      await this.finishRestoreInstall(operation, lock, restore.requestId)
       return await this.listedVersion()
     } finally {
       clearInterval(timer)
       await this.releaseRestoreLock(lock)
+    }
+  }
+  /**
+   * Forget the in-flight restore install. A readable record is cleared only when
+   * the disk copy is still that request id. An unreadable record is dropped.
+   * @param {object} operation
+   */
+  markInstallFinished(operation) {
+    if (operation.restoreInstall == null) return
+    const record = installRecordOf(operation.restoreInstall)
+    operation.restoreInstall = null
+    if (record) operation.restoreInstallSettledId = record.requestId
+    else operation.restoreInstallDrop = true
+  }
+  /**
+   * A previous restore install has a result in this process. Record that outcome
+   * and clear its id. The caller holds the restore lock.
+   * @param {object} operation
+   * @param {{ requestId: string, owner: string, startedAt: number }} record
+   * @param {object} result
+   */
+  async rememberSettledInstall(operation, record, result) {
+    const listed = await installedCopy(this.manager())
+    operation.restore = classifyRestore(result, { version: operation.previousVersion }, listed)
+    operation.restoreRequestId = record.requestId
+    settleRemoval(operation, this.version)
+    if (operation.status === 'applied' && (operation.reason === 'reinstall' || operation.reason === 'restore-pending'))
+      delete operation.reason
+    this.markInstallFinished(operation)
+    try {
+      await this.saveMerged(operation)
+    } catch {
+      // The caller still reports the settled view.
+    }
+  }
+  /**
+   * Automatic restore does not start while an earlier restore install is unsettled.
+   * Settings may still install. A known result is recorded and not started again.
+   * @param {object} operation
+   * @param {Manager} manager
+   * @param {boolean} manual
+   * @returns {Promise<false | 'offer' | 'settled'>}
+   */
+  async blockOnUnsettledInstall(operation, manager, manual) {
+    if (operation.restoreInstall == null) return false
+    const record = installRecordOf(operation.restoreInstall)
+    let prior = null
+    if (record && typeof manager.waitForInstall === 'function') {
+      try {
+        prior = await manager.waitForInstall(record.requestId)
+      } catch {
+        prior = null
+      }
+    }
+    if (prior && record) {
+      await this.rememberSettledInstall(operation, record, prior)
+      return 'settled'
+    }
+    if (manual) return false
+    operation.reason = 'restore-offer'
+    try {
+      await this.saveMerged(operation)
+    } catch {
+      // The view still offers a manual reinstall.
+    }
+    return 'offer'
+  }
+  /**
+   * Clear the install record for `requestId` while holding a lock.
+   * If this lease was lost, take the lock again. If that fails, leave the record
+   * so another process does not auto-install over an unknown result.
+   * @param {object} operation
+   * @param {{ fh: import('node:fs/promises').FileHandle, path: string, owner: string, requestId: string, queue: Promise<void>, lost: boolean }} lock
+   * @param {string} requestId
+   */
+  async finishRestoreInstall(operation, lock, requestId) {
+    operation.restoreInstall = null
+    operation.restoreInstallSettledId = requestId
+    const write = async () => {
+      await this.saveMerged(operation)
+    }
+    let held = false
+    if (!lock.lost) held = await this.renewRestoreLock(lock)
+    if (!held) lock.lost = true
+    if (held) {
+      try {
+        await write()
+      } catch {
+        // The next reconcile reads the disk copy.
+      }
+      delete operation.restoreInstallSettledId
+      return
+    }
+    const again = await this.acquireRestoreLock(operation.requestId)
+    if (!again) {
+      delete operation.restoreInstallSettledId
+      return
+    }
+    try {
+      await write()
+    } catch {
+      // Leave the marker when the merged write fails.
+    } finally {
+      delete operation.restoreInstallSettledId
+      await this.releaseRestoreLock(again)
     }
   }
   /**
@@ -1528,6 +1800,7 @@ export class PluginUpdates {
   async acquireRestoreLock(requestId) {
     if (typeof requestId !== 'string' || !UUID.test(requestId)) return null
     const directory = await this.privateDir()
+    await sweepLockGraves(directory)
     const path = join(directory, `${requestId}.restore.lock`)
     const owner = randomUUID()
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -1547,19 +1820,34 @@ export class PluginUpdates {
    * @param {string} owner
    */
   async takeoverRestoreLock(path, requestId, owner) {
-    const grave = `${path}.${randomUUID()}.stale`
+    let fh
     try {
-      await rename(path, grave)
+      fh = await open(path, 'r')
     } catch {
       return null
     }
-    let moved = null
-    for (let attempt = 0; attempt < 3 && !moved; attempt++) {
-      try {
-        moved = parseLease(await readFile(grave, 'utf8'))
-      } catch {
-        moved = null
+    let expected
+    let body = null
+    try {
+      const fhStat = await fh.stat()
+      const pathStat = await lstat(path)
+      if (!pathStat.isSymbolicLink() && sameFile(fhStat, pathStat)) {
+        expected = pathStat
+        body = parseLease(await readFile(fh, 'utf8'))
       }
+    } catch {
+      expected = undefined
+    } finally {
+      await fh.close().catch(() => {})
+    }
+    if (!expected || leaseHeld(body, Date.now())) return null
+    const grave = `${path}.${randomUUID()}.stale`
+    if (!(await renameVerified(path, grave, expected))) return null
+    let moved
+    try {
+      moved = parseLease(await readFile(grave, 'utf8'))
+    } catch {
+      moved = null
     }
     if (leaseHeld(moved, Date.now())) {
       try {
@@ -1622,13 +1910,9 @@ export class PluginUpdates {
       } catch {
         return
       }
-      if (!sameFile(fhStat, pathStat)) return
+      if (pathStat.isSymbolicLink() || !sameFile(fhStat, pathStat)) return
       const grave = `${lock.path}.${randomUUID()}.release`
-      try {
-        await rename(lock.path, grave)
-      } catch {
-        return
-      }
+      if (!(await renameVerified(lock.path, grave, pathStat))) return
       let mine
       try {
         const graveStat = await lstat(grave)
@@ -1657,11 +1941,50 @@ export class PluginUpdates {
     if (!name.endsWith('.json') || name === 'latest.json') return
     const id = name.slice(0, -5)
     if (!UUID.test(id)) return
+    const path = join(this.cacheDir, name)
+    let fh
     try {
-      await rename(join(this.cacheDir, name), join(this.cacheDir, `${name}.quarantine`))
+      fh = await open(path, 'r')
     } catch {
-      // The file was already moved, or the quarantine name could not be created.
+      return
     }
+    let expected
+    let text
+    try {
+      const fhStat = await fh.stat()
+      const pathStat = await lstat(path)
+      if (pathStat.isSymbolicLink() || !sameFile(fhStat, pathStat)) return
+      expected = pathStat
+      text = await readFile(fh, 'utf8')
+    } catch {
+      return
+    } finally {
+      await fh.close().catch(() => {})
+    }
+    if (!expected) return
+    try {
+      JSON.parse(text)
+      return
+    } catch {
+      // The first read is not JSON. Confirm that again immediately before the rename.
+    }
+    let againStat
+    let again
+    try {
+      againStat = await lstat(path)
+      if (againStat.isSymbolicLink() || !sameFile(againStat, expected)) return
+      again = await readFile(path, 'utf8')
+    } catch {
+      return
+    }
+    try {
+      JSON.parse(again)
+      return
+    } catch {
+      // Still broken. Keep this inode under a name that a later quarantine will not reuse.
+    }
+    const destination = join(this.cacheDir, `${name}.${Date.now()}.${randomUUID()}.quarantine`)
+    await renameVerified(path, destination, againStat)
   }
   /**
    * @param {object} operation
