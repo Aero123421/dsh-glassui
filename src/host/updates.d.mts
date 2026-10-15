@@ -68,7 +68,7 @@ export const PACKAGE: string
 export const RELEASES: string
 /** Reads of the bundle list before an unknown list is treated as not absent. */
 export const BUNDLE_LIST_ATTEMPTS: number
-/** Reinstalls recorded on the operation before automatic and manual installs stop. */
+/** Reinstalls recorded on the operation before automatic restore stops. Settings can still reinstall. */
 export const RESTORE_ATTEMPT_LIMIT: number
 /** Minimum gap between automatic reinstalls. */
 export const RESTORE_ATTEMPT_INTERVAL_MS: number

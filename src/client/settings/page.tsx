@@ -444,7 +444,7 @@ function UpdatesRow({ controller, t }: { controller: UpdateController; t: Transl
               {t('updateReconcile')}
             </button>
           ) : null}
-          {view.reason === 'restore-offer' ? (
+          {view.reason === 'restore-offer' || view.reason === 'restore-limit' ? (
             <button
               type="button"
               className="glassui-button"

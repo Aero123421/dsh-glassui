@@ -115,7 +115,13 @@ export class UpdateController {
     }
   }
   async restore() {
-    if (this.closed || !this.profileKey || !this.requestId || this.state.reason !== 'restore-offer') return
+    if (
+      this.closed ||
+      !this.profileKey ||
+      !this.requestId ||
+      (this.state.reason !== 'restore-offer' && this.state.reason !== 'restore-limit')
+    )
+      return
     const generation = ++this.generation
     this.publish({ ...this.state, status: 'installing' })
     try {

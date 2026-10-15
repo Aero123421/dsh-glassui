@@ -63,7 +63,7 @@ export const en = {
   'updateReason_restore-offer':
     'This update has no record that it removed the plugin, or the install already finished. The previous version is not put back automatically.',
   'updateReason_restore-limit':
-    'Automatic reinstall stopped after the attempt limit. Install this plugin again from the Releases page.',
+    'Automatic reinstall stopped after the attempt limit. Reinstall previous version is on this page, and the Releases page is available too.',
   updateRestore: 'Reinstall previous version',
   updateSettling: 'Saving pending settings…',
   updateReason_settings: 'Settings could not be saved or changed elsewhere. Resolve the save error and try again.',
@@ -208,7 +208,7 @@ export const ja: Copy = {
   'updateReason_restore-offer':
     'この更新がプラグインを削除した記録がないか、導入はすでに終わっています。以前の版は自動では戻しません。',
   'updateReason_restore-limit':
-    '自動での入れ直しは回数の上限に達したため停止しました。Releases ページから入れ直してください。',
+    '自動での入れ直しは回数の上限に達したため停止しました。この画面の「前の版を入れ直す」から戻すか、Releases ページから入れ直してください。',
   updateRestore: '前の版を入れ直す',
   updateSettling: '保存待ちの設定を保存中…',
   updateReason_settings: '設定を保存できないか、別の画面で設定が変わりました。保存状態を確認して再試行してください。',
@@ -340,7 +340,8 @@ export const zh: Copy = {
   'updateReason_restore-failed': '更新已删除此插件，且恢复先前版本失败。请从 Releases 页面重新安装。',
   'updateReason_restore-pending': '已重新安装先前的版本。请重新启动 DSH 后再让该版本运行，并核对安装结果。',
   'updateReason_restore-offer': '没有这次更新删除插件的记录，或安装已经结束。先前的版本不会自动装回。',
-  'updateReason_restore-limit': '自动重新安装已达到次数上限并已停止。请从 Releases 页面重新安装。',
+  'updateReason_restore-limit':
+    '自动重新安装已达到次数上限并已停止。可使用本页的「重新安装先前版本」，或从 Releases 页面重新安装。',
   updateRestore: '重新安装先前版本',
   updateReason_storage: '无法将更新文件写入profile。',
   updateReason_interrupted: '安装前的下载已中断，请重新检查。',

@@ -287,6 +287,11 @@ test('restore sends only an offered previous version and keeps a refusal unsucce
   assert.equal(calls[0].payload.requestId, 'req')
   assert.equal(calls[0].payload.profileKey, profileKey)
   assert.equal(controller.state.reason, 'restored')
+  controller.publish({ status: 'unknown', reason: 'restore-limit', profileKey, requestId: 'req' })
+  await controller.restore()
+  assert.equal(calls.length, 2)
+  assert.match(calls[1].method, /update-restore$/)
+  assert.equal(calls[1].payload.requestId, 'req')
   controller.dispose()
   const refused = new UpdateController(
     {

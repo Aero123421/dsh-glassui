@@ -2111,6 +2111,7 @@ function sameSettings(a, b) {
 import { createHash, randomUUID as randomUUID2 } from "node:crypto";
 import { mkdir, mkdtemp, writeFile, readFile, rename, lstat, readdir, open, rm, link } from "node:fs/promises";
 import { join, resolve, sep, basename, win32 } from "node:path";
+import { Worker } from "node:worker_threads";
 import { gunzipSync } from "node:zlib";
 
 // src/host/update-request-id.ts
@@ -2532,6 +2533,62 @@ function installRecordOf(value) {
 function isLockGrave(name2) {
   return name2.includes(".restore.lock.") && (name2.endsWith(".stale") || name2.endsWith(".release"));
 }
+function liveLockId(name2) {
+  if (!name2.endsWith(".restore.lock")) return null;
+  const id = name2.slice(0, -".restore.lock".length);
+  return UUID.test(id) ? id : null;
+}
+async function removeExpiredLock(path) {
+  let fh;
+  try {
+    fh = await open(path, "r");
+  } catch {
+    return;
+  }
+  let expected;
+  let body;
+  try {
+    const fhStat = await fh.stat();
+    const pathStat = await lstat(path);
+    if (pathStat.isSymbolicLink() || !pathStat.isFile() || !sameFile(fhStat, pathStat)) return;
+    expected = pathStat;
+    body = parseLease(await readFile(fh, "utf8"));
+  } catch {
+    return;
+  } finally {
+    await fh.close().catch(() => {
+    });
+  }
+  if (!expected || !body || body.expiresAt > Date.now()) return;
+  let againStat;
+  let again;
+  try {
+    againStat = await lstat(path);
+    if (againStat.isSymbolicLink() || !sameFile(againStat, expected)) return;
+    again = parseLease(await readFile(path, "utf8"));
+  } catch {
+    return;
+  }
+  if (!again || again.expiresAt > Date.now()) return;
+  const grave = `${path}.${randomUUID2()}.stale`;
+  if (!await renameVerified(path, grave, againStat)) return;
+  let moved;
+  try {
+    moved = parseLease(await readFile(grave, "utf8"));
+  } catch {
+    moved = null;
+  }
+  if (!moved || moved.expiresAt > Date.now()) {
+    try {
+      await link(grave, path);
+      await rm(grave, { force: true });
+    } catch {
+    }
+    return;
+  }
+  await rm(grave, { force: true }).catch(() => {
+  });
+}
 async function sweepLockGraves(directory) {
   let names;
   try {
@@ -2539,9 +2596,16 @@ async function sweepLockGraves(directory) {
   } catch {
     return;
   }
+  await Promise.all(names.filter((name2) => liveLockId(name2)).map((name2) => removeExpiredLock(join(directory, name2))));
+  let graves;
+  try {
+    graves = await readdir(directory);
+  } catch {
+    return;
+  }
   const cutoff = Date.now() - RESTORE_LOCK_TTL_MS - RESTORE_LOCK_SKEW_MS;
   await Promise.all(
-    names.map(async (name2) => {
+    graves.map(async (name2) => {
       if (!isLockGrave(name2)) return;
       const path = join(directory, name2);
       let stat;
@@ -2561,6 +2625,77 @@ async function writeHandle(handle, body) {
   const bytes = Buffer.from(body);
   await handle.write(bytes, 0, bytes.length, 0);
   await handle.truncate(bytes.length);
+}
+var LOCK_RENEWER_SOURCE = `
+import { open, readFile, lstat } from 'node:fs/promises'
+import { workerData } from 'node:worker_threads'
+const { path, owner, requestId, ttl, interval } = workerData
+function parse(text) {
+  try {
+    const value = JSON.parse(text)
+    if (!value || value.owner !== owner || value.requestId !== requestId) return null
+    if (typeof value.expiresAt !== 'number' || !Number.isFinite(value.expiresAt)) return null
+    return value
+  } catch {
+    return null
+  }
+}
+async function renew() {
+  let fh
+  try {
+    fh = await open(path, 'r+')
+  } catch {
+    return
+  }
+  try {
+    const fhStat = await fh.stat()
+    const pathStat = await lstat(path)
+    if (pathStat.isSymbolicLink() || !pathStat.isFile()) return
+    if (fhStat.ino !== pathStat.ino || fhStat.dev !== pathStat.dev) return
+    if (!parse(await readFile(fh, 'utf8'))) return
+    const next = JSON.stringify({ owner, requestId, expiresAt: Date.now() + ttl })
+    const bytes = Buffer.from(next)
+    await fh.write(bytes, 0, bytes.length, 0)
+    await fh.truncate(bytes.length)
+    const again = await lstat(path)
+    const fhAgain = await fh.stat()
+    if (again.ino !== fhAgain.ino || again.dev !== fhAgain.dev) return
+    if (!parse(await readFile(path, 'utf8'))) return
+  } catch {
+    // The next interval tries again. A dead parent terminates this thread.
+  } finally {
+    await fh.close().catch(() => {})
+  }
+}
+await renew()
+setInterval(() => {
+  void renew()
+}, interval)
+`;
+function startLockRenewer(lock) {
+  try {
+    const worker = new Worker(LOCK_RENEWER_SOURCE, {
+      eval: true,
+      workerData: {
+        path: lock.path,
+        owner: lock.owner,
+        requestId: lock.requestId,
+        ttl: RESTORE_LOCK_TTL_MS,
+        interval: RESTORE_LOCK_RENEW_MS
+      }
+    });
+    worker.unref();
+    worker.on("error", () => {
+    });
+    return worker;
+  } catch {
+    return null;
+  }
+}
+async function stopLockRenewer(worker) {
+  if (!worker) return;
+  await worker.terminate().catch(() => {
+  });
 }
 function enqueueLock(lock, fn) {
   const run = lock.queue.then(fn, fn);
@@ -2634,7 +2769,7 @@ function absorbMonotonic(operation, disk) {
   const clearing = operation.restoreInstall === null && UUID.test(settledId);
   if (drop) delete operation.restoreInstall;
   else if (clearing && (!diskPresent || stored?.requestId === settledId)) delete operation.restoreInstall;
-  else if (stored && memory) operation.restoreInstall = stored.startedAt <= memory.startedAt ? stored : memory;
+  else if (stored && memory) operation.restoreInstall = memory.startedAt >= stored.startedAt ? memory : stored;
   else if (diskPresent && !memory) operation.restoreInstall = stored ?? disk.restoreInstall;
   else if (memory) operation.restoreInstall = memory;
   else delete operation.restoreInstall;
@@ -2662,8 +2797,8 @@ function restorePlan(operation, { absent, installUnresolved, now, cacheDir, lock
     return "invalid-source";
   }
   if (lockHeld) return "inflight";
-  if (attemptsOf(operation) >= RESTORE_ATTEMPT_LIMIT) return "limit";
   if (priorUnsettled) return "offer";
+  if (attemptsOf(operation) >= RESTORE_ATTEMPT_LIMIT) return "limit";
   const recent = typeof operation.restoreAttemptAt === "number" && now - operation.restoreAttemptAt < RESTORE_ATTEMPT_INTERVAL_MS;
   const proven = removalProven(operation) && operation.status === "unknown";
   if (proven && recent && !directoryUnread && !installUnresolved) return "wait";
@@ -3326,6 +3461,7 @@ var PluginUpdates = class {
       );
     }, RESTORE_LOCK_RENEW_MS);
     timer.unref?.();
+    const renewer = startLockRenewer(lock);
     try {
       if (this.closed) return void 0;
       await this.reloadOperation(operation);
@@ -3339,7 +3475,7 @@ var PluginUpdates = class {
       }
       if (journalLockHeld(operation, Date.now())) return void 0;
       const now = Date.now();
-      if (attemptsOf(operation) >= RESTORE_ATTEMPT_LIMIT) {
+      if (!manual && attemptsOf(operation) >= RESTORE_ATTEMPT_LIMIT) {
         operation.reason = "restore-limit";
         await this.saveMerged(operation);
         return void 0;
@@ -3397,7 +3533,7 @@ var PluginUpdates = class {
             return false;
           }
           const kept = installRecordOf(operation.restoreInstall);
-          if (!manual && (!kept || kept.requestId !== requestId)) return false;
+          if (!kept || kept.requestId !== requestId) return false;
           if (!await this.renewRestoreLock(lock)) {
             lock.lost = true;
             return false;
@@ -3424,6 +3560,7 @@ var PluginUpdates = class {
       return await this.listedVersion();
     } finally {
       clearInterval(timer);
+      await stopLockRenewer(renewer);
       await this.releaseRestoreLock(lock);
     }
   }
@@ -3461,7 +3598,8 @@ var PluginUpdates = class {
   }
   /**
    * Automatic restore does not start while an earlier restore install is unsettled.
-   * Settings may still install. A known result is recorded and not started again.
+   * Settings checks the bundle list before installing over an unknown result.
+   * A present package is not installed again. A known result is recorded and not started again.
    * @param {object} operation
    * @param {Manager} manager
    * @param {boolean} manual
@@ -3482,7 +3620,27 @@ var PluginUpdates = class {
       await this.rememberSettledInstall(operation, record, prior);
       return "settled";
     }
-    if (manual) return false;
+    if (manual) {
+      const presence = await listedPackage(manager);
+      if (presence === "present") {
+        operation.observedPresent = true;
+        this.markInstallFinished(operation);
+        try {
+          await this.saveMerged(operation);
+        } catch {
+        }
+        return "settled";
+      }
+      if (presence !== "absent") {
+        operation.reason = "restore-offer";
+        try {
+          await this.saveMerged(operation);
+        } catch {
+        }
+        return "offer";
+      }
+      return false;
+    }
     operation.reason = "restore-offer";
     try {
       await this.saveMerged(operation);
@@ -3799,7 +3957,7 @@ var PluginUpdates = class {
     if (!profileKey || profileKey !== this.base().profileKey) throw new Error("profile");
     if (typeof requestId !== "string" || !UUID.test(requestId)) throw new Error("invalid-request");
     const viewed = await this.reconcile(requestId);
-    if (viewed.reason !== "restore-offer") return viewed;
+    if (viewed.reason !== "restore-offer" && viewed.reason !== "restore-limit") return viewed;
     let operation;
     try {
       operation = JSON.parse(await readFile(join(this.cacheDir, `${requestId}.json`), "utf8"));
