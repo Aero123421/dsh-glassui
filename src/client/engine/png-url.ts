@@ -24,7 +24,14 @@ interface ExtraCode {
 const LITERALS = buildLiteralCodes()
 const DISTANCES = buildDistanceCodes()
 const LENGTH_BY_SIZE = buildLengthTable()
-const DISTANCE_BY_SIZE = buildDistanceTable()
+/** First distance each fixed-Huffman symbol represents. Kept as numbers, not one object per distance. */
+const DISTANCE_BASE = [
+  1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145,
+  8193, 12289, 16385, 24577,
+]
+const DISTANCE_EXTRA = [
+  0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13,
+]
 
 /**
  * Encode `width × height` RGBA pixels as a PNG data URL.
@@ -105,7 +112,8 @@ function deflateFixed(data: Uint8Array): Uint8Array {
   const count = data.length
   const head = new Int32Array(32768)
   head.fill(-1)
-  const previous = new Int32Array(count)
+  // Links are stored only for the last 32 KiB. Older links fall outside the deflate window.
+  const previous = new Int32Array(32768)
   previous.fill(-1)
   let index = 0
   while (index < count) {
@@ -115,7 +123,7 @@ function deflateFixed(data: Uint8Array): Uint8Array {
       const hash = hashAt(data, index)
       let node = head[hash] ?? -1
       let looked = 0
-      while (node >= 0 && index - node <= 32768 && looked < 24) {
+      while (node >= 0 && node < index && index - node <= 32768 && looked < 24) {
         const distance = index - node
         if (sameTriple(data, node, index)) {
           let length = 3
@@ -127,7 +135,7 @@ function deflateFixed(data: Uint8Array): Uint8Array {
             if (length === max) break
           }
         }
-        node = previous[node] ?? -1
+        node = previous[node & 32767] ?? -1
         looked++
       }
       remember(data, head, previous, index)
@@ -156,7 +164,7 @@ function sameTriple(data: Uint8Array, left: number, right: number): boolean {
 
 function remember(data: Uint8Array, head: Int32Array, previous: Int32Array, index: number): void {
   const hash = hashAt(data, index)
-  previous[index] = head[hash] ?? -1
+  previous[index & 32767] = head[hash] ?? -1
   head[hash] = index
 }
 
@@ -168,14 +176,29 @@ function emitSymbol(writer: BitWriter, symbol: number): void {
 
 function emitMatch(writer: BitWriter, length: number, distance: number): void {
   const codedLength = LENGTH_BY_SIZE[length]
-  const codedDistance = DISTANCE_BY_SIZE[distance]
+  const codedDistance = distanceCode(distance)
   if (codedLength === undefined || codedDistance === undefined) throw new Error('png match')
   emitSymbol(writer, codedLength.symbol)
   if (codedLength.extra > 0) writer.push(codedLength.value, codedLength.extra)
-  const distanceCode = DISTANCES[codedDistance.symbol]
-  if (distanceCode === undefined) throw new Error('png distance')
-  writer.push(distanceCode.bits, distanceCode.length)
+  const bits = DISTANCES[codedDistance.symbol]
+  if (bits === undefined) throw new Error('png distance')
+  writer.push(bits.bits, bits.length)
   if (codedDistance.extra > 0) writer.push(codedDistance.value, codedDistance.extra)
+}
+
+function distanceCode(distance: number): ExtraCode | undefined {
+  if (distance < 1 || distance > 32768) return undefined
+  let symbol = 29
+  for (let index = 0; index < DISTANCE_BASE.length; index++) {
+    const next = DISTANCE_BASE[index + 1] ?? 32769
+    if (distance < next) {
+      symbol = index
+      break
+    }
+  }
+  const base = DISTANCE_BASE[symbol] ?? 1
+  const extra = DISTANCE_EXTRA[symbol] ?? 0
+  return { symbol, extra, value: distance - base }
 }
 
 function zlibStore(deflated: Uint8Array, raw: Uint8Array): Uint8Array {
@@ -296,31 +319,5 @@ function buildLengthTable(): readonly (ExtraCode | undefined)[] {
   fill(281, 283, 5, 131)
   for (let value = 0; value < 31; value++) table[227 + value] = { symbol: 284, extra: 5, value }
   table[258] = { symbol: 285, extra: 0, value: 0 }
-  return table
-}
-
-function buildDistanceTable(): readonly (ExtraCode | undefined)[] {
-  const table: (ExtraCode | undefined)[] = []
-  const fill = (from: number, to: number, extra: number, base: number): void => {
-    let distance = base
-    for (let symbol = from; symbol <= to; symbol++) {
-      const span = 1 << extra
-      for (let value = 0; value < span; value++) table[distance++] = { symbol, extra, value }
-    }
-  }
-  fill(0, 3, 0, 1)
-  fill(4, 5, 1, 5)
-  fill(6, 7, 2, 9)
-  fill(8, 9, 3, 17)
-  fill(10, 11, 4, 33)
-  fill(12, 13, 5, 65)
-  fill(14, 15, 6, 129)
-  fill(16, 17, 7, 257)
-  fill(18, 19, 8, 513)
-  fill(20, 21, 9, 1025)
-  fill(22, 23, 10, 2049)
-  fill(24, 25, 11, 4097)
-  fill(26, 27, 12, 8193)
-  fill(28, 29, 13, 16385)
   return table
 }
