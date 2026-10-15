@@ -2,6 +2,7 @@
 // These tests pin that behavior, so a browser change shows up in CI before users see it.
 import assert from 'node:assert/strict'
 import { after, describe, it } from 'node:test'
+import { bezelFor, lensPixels } from '../../src/client/engine/lens-map.ts'
 import { closeBrowser, openFixture, settle, surfaces } from './fixture.mjs'
 
 after(closeBrowser)
@@ -64,6 +65,41 @@ describe('refraction', () => {
       assert.equal(state.filter.width, String(state.width))
       assert.equal(Number(state.filter.x), 0, 'no version-dependent origin correction')
       assert.ok(state.lenses >= 1)
+      const geometry = await page.evaluate(() => {
+        const element = document.getElementById('composer')
+        const id = element.getAttribute('data-glassui-lens')
+        const radius = Math.round(
+          Math.min(
+            parseFloat(getComputedStyle(element).borderTopLeftRadius) || 0,
+            element.offsetWidth / 2,
+            element.offsetHeight / 2,
+          ),
+        )
+        return {
+          width: element.offsetWidth,
+          height: element.offsetHeight,
+          radius,
+          href: document.getElementById(`glassui-lens-${id}`).querySelector('feImage').getAttribute('href'),
+        }
+      })
+      const decoded = await page.evaluate(async href => {
+        const blob = await (await fetch(href)).blob()
+        const bitmap = await createImageBitmap(blob)
+        const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
+        const context = canvas.getContext('2d')
+        context.drawImage(bitmap, 0, 0)
+        const image = context.getImageData(0, 0, bitmap.width, bitmap.height)
+        return { width: bitmap.width, height: bitmap.height, pixels: [...image.data] }
+      }, geometry.href)
+      const expected = lensPixels({
+        width: geometry.width,
+        height: geometry.height,
+        radius: geometry.radius,
+        bezel: bezelFor(geometry.width, geometry.height),
+      })
+      assert.equal(decoded.width, geometry.width)
+      assert.equal(decoded.height, geometry.height)
+      assert.deepEqual(Uint8ClampedArray.from(decoded.pixels), expected)
     } finally {
       await close()
     }

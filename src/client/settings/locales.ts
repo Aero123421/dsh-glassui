@@ -54,6 +54,10 @@ export const en = {
   'updateReason_release-unavailable': 'The release service returned no accessible release.',
   updateReason_reinstall:
     'The installed copy was removed, and the new version did not finish installing. Install this release again from the Releases page.',
+  updateReason_restored:
+    'The new version was not installed. The previous version is installed again. Restart DSH if this plugin is not running, then check again.',
+  'updateReason_restore-failed':
+    'The update removed this plugin, and putting the previous version back failed. Install it again from the Releases page.',
   updateSettling: 'Saving pending settings…',
   updateReason_settings: 'Settings could not be saved or changed elsewhere. Resolve the save error and try again.',
   updateRunning: 'Running version',
@@ -188,6 +192,10 @@ export const ja: Copy = {
   'updateReason_release-unavailable': '取得できる配布版がありません。',
   updateReason_reinstall:
     '導入済みの版は削除されましたが、新しい版の導入は完了していません。Releases ページから入れ直してください。',
+  updateReason_restored:
+    '新しい版は導入されませんでした。以前の版を入れ直しました。プラグインが動作していない場合はDSHを再起動してから、再度確認してください。',
+  'updateReason_restore-failed':
+    '更新でこのプラグインが削除され、以前の版の再導入にも失敗しました。Releases ページから入れ直してください。',
   updateSettling: '保存待ちの設定を保存中…',
   updateReason_settings: '設定を保存できないか、別の画面で設定が変わりました。保存状態を確認して再試行してください。',
   updateRunning: '実行版',
@@ -314,6 +322,8 @@ export const zh: Copy = {
   'updateReason_stale-candidate': '发布信息或安装状态已变化，请重新检查。',
   'updateReason_release-unavailable': '没有可访问的发布版本。',
   updateReason_reinstall: '已安装的版本已移除，但新版本没有完成安装。请从 Releases 页面重新安装。',
+  updateReason_restored: '新版本没有安装。已重新安装先前的版本。如果插件没有在运行，请重启 DSH 后再检查。',
+  'updateReason_restore-failed': '更新已删除此插件，且恢复先前版本失败。请从 Releases 页面重新安装。',
   updateReason_storage: '无法将更新文件写入profile。',
   updateReason_interrupted: '安装前的下载已中断，请重新检查。',
   updateSettling: '正在保存待处理设置…',

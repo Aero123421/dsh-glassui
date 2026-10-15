@@ -235,13 +235,91 @@ describe('pointer highlight ordering', () => {
         }
       })
       assert.deepEqual(log.first, ['read', 'read', 'write', 'write', 'write', 'write'])
-      assert.deepEqual(log.second, ['read', 'read'])
+      assert.deepEqual(log.second, [])
       assert.ok(log.x.endsWith('px') && log.y.endsWith('px'))
       await f.page.evaluate(() => window.__fixture.form.update({ enabled: false }))
       assert.equal(
         await f.page.locator('#nested-composer').evaluate(el => el.style.getPropertyValue('--glassui-lx')),
         '',
       )
+      assert.deepEqual(f.errors, [])
+    } finally {
+      await f.close()
+    }
+  })
+
+  it('measures again after scroll or a layout change, and ignores touch', async () => {
+    const f = await openFixture({ config: { refraction: false } })
+    try {
+      await f.page.evaluate(() => {
+        const pane = document.createElement('div')
+        pane.id = 'nested-composer'
+        pane.className = 'composer'
+        pane.style.cssText = 'position:relative;left:0;right:auto;bottom:auto;width:160px;height:80px'
+        document.getElementById('dialog').append(pane)
+        const chat = document.getElementById('chat')
+        chat.style.overflow = 'auto'
+        chat.style.height = '80px'
+        const spacer = document.createElement('div')
+        spacer.style.height = '400px'
+        chat.append(spacer)
+      })
+      await settle(f.page, 12)
+      const log = await f.page.evaluate(async () => {
+        const entries = []
+        const read = Element.prototype.getBoundingClientRect
+        Element.prototype.getBoundingClientRect = function (...args) {
+          if (this.hasAttribute('data-glassui-surface')) entries.push('read')
+          return read.apply(this, args)
+        }
+        const move = (type, x, y) => {
+          document
+            .getElementById('nested-composer')
+            .dispatchEvent(
+              new PointerEvent('pointermove', { bubbles: true, pointerType: type, clientX: x, clientY: y }),
+            )
+        }
+        try {
+          move('mouse', 450, 110)
+          await window.__fixture.frames(2)
+          entries.length = 0
+          move('touch', 460, 120)
+          await window.__fixture.frames(2)
+          const touch = [...entries]
+          entries.length = 0
+          document.getElementById('chat').scrollTop = 40
+          move('mouse', 450, 110)
+          await window.__fixture.frames(2)
+          const scrolled = [...entries]
+          entries.length = 0
+          move('mouse', 452, 112)
+          await window.__fixture.frames(2)
+          const cached = [...entries]
+          entries.length = 0
+          document.getElementById('nested-composer').style.marginLeft = '24px'
+          move('mouse', 452, 112)
+          await window.__fixture.frames(2)
+          const shifted = [...entries]
+          entries.length = 0
+          const motion = document
+            .getElementById('nested-composer')
+            .animate([{ transform: 'none' }, { transform: 'translateX(8px)' }], {
+              duration: 5000,
+            })
+          move('mouse', 460, 116)
+          await window.__fixture.frames(2)
+          const animated = [...entries]
+          motion.cancel()
+          return { touch, scrolled, cached, shifted, animated }
+        } finally {
+          Element.prototype.getBoundingClientRect = read
+        }
+      })
+      assert.deepEqual(log.touch, [])
+      assert.ok(log.scrolled.includes('read'), `scroll should measure, got ${log.scrolled.join(',')}`)
+      assert.deepEqual(log.cached, [])
+      assert.ok(log.shifted.includes('read'), `layout change should measure, got ${log.shifted.join(',')}`)
+      assert.ok(log.animated.includes('read'), `animation should measure, got ${log.animated.join(',')}`)
       assert.deepEqual(f.errors, [])
     } finally {
       await f.close()

@@ -85,4 +85,11 @@ export function installRelease(
   manager: Manager,
   spec: string,
   options: InstallBundleOptions,
-): Promise<{ result: ChangeResult; removed: boolean }>
+  previous?: { source?: string; enabled?: boolean },
+): Promise<{ result: ChangeResult; removed: boolean; restore?: 'ok' | 'failed' }>
+export function settleRemoval(operation: {
+  status?: string
+  reason?: string
+  restore?: 'ok' | 'failed'
+  reinstall?: boolean
+}): void

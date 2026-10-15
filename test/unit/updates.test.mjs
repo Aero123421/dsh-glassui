@@ -5,11 +5,13 @@ import { mkdtemp, rm, writeFile, mkdir, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID, createHash } from 'node:crypto'
+import semver from 'semver'
 import { gzipSync } from 'node:zlib'
 import {
   PluginUpdates,
   REPOSITORY,
   PACKAGE,
+  settleRemoval,
   compareVersions,
   semanticVersion,
   releaseCandidate,
@@ -349,7 +351,7 @@ test('published DSH peer range admits 0.2.1-alpha.3 and later 0.2 prereleases', 
   const range = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).peerDependencies[
     '@deepseek-ai/dsh'
   ]
-  assert.equal(range, '>=0.2.0-rc.2 <0.3.0')
+  assert.equal(range, '>=0.2.0-rc.2 <0.3.0-0')
   const published = { ...pkg, peerDependencies: { '@deepseek-ai/dsh': range } }
   for (const runtime of [
     '0.2.0-rc.2',
@@ -364,8 +366,14 @@ test('published DSH peer range admits 0.2.1-alpha.3 and later 0.2 prereleases', 
     '0.2.99',
   ])
     assert.equal(checkCompatibility(published, candidate, runtime), runtime)
-  for (const runtime of ['0.2.0-rc.1', '0.1.7-rc.2', '0.3.0', '0.3.1'])
+  for (const runtime of ['0.2.0-rc.1', '0.1.7-rc.2', '0.3.0-0', '0.3.0-alpha.1', '0.3.0-rc.1', '0.3.0', '0.3.1'])
     assert.throws(() => checkCompatibility(published, candidate, runtime), /incompatible/)
+  // DSH boot includes prereleases. The `-0` cap is what drops 0.3.0 prereleases there.
+  // node-semver's default mode still skips 0.2.1 prereleases: the only prerelease
+  // comparators are on 0.2.0 and 0.3.0, not on 0.2.1.
+  assert.equal(semver.satisfies('0.2.1-alpha.3', range, { includePrerelease: true }), true)
+  assert.equal(semver.satisfies('0.3.0-alpha.1', range, { includePrerelease: true }), false)
+  assert.equal(semver.satisfies('0.2.1-alpha.3', range), false)
 })
 
 test('external upgrade during final receipt save cannot be downgraded', async t => {
@@ -535,16 +543,123 @@ test('a refused removal is not followed by another install', async t => {
   assert.equal((await updater.reconcile(id)).status, 'failed')
 })
 
-test('an install that fails after removal stays unknown', async t => {
-  const { id, updater, directory, manager } = await runUpdate(t, ({ manager, bundle, seen }) => {
+test('an install that fails after removal puts the previous spec back', async t => {
+  const previous = `github:${REPOSITORY}`
+  const { id, updater, directory, manager, bundle, seen } = await runUpdate(t, ({ manager, bundle, seen }) => {
+    bundle.enabled = true
     manager.removeBundle = async name => {
       seen.push(['remove', name])
       bundle.installed = false
       delete bundle.version
       return { changed: true, application: 'applied', stage: 'remove', target: name }
     }
-    manager.installBundle = async (...args) => {
-      seen.push(['install', args[0]])
+    manager.installBundle = async (spec, options) => {
+      seen.push(['install', spec, options])
+      const attempt = seen.filter(item => item[0] === 'install').length
+      if (attempt === 1) return alreadyInstalled()
+      if (attempt === 2) {
+        return {
+          changed: false,
+          application: 'failed',
+          stage: 'install',
+          target: PACKAGE,
+          error: { code: 'operation-error' },
+        }
+      }
+      bundle.installed = true
+      bundle.version = '0.5.0'
+      bundle.enabled = options.enabled
+      bundle.source = spec
+      return {
+        changed: true,
+        application: 'applied',
+        stage: 'install',
+        target: PACKAGE,
+        bundle: PACKAGE,
+        version: '0.5.0',
+        enabled: options.enabled,
+      }
+    }
+  })
+  assert.deepEqual(
+    seen.map(item => item[0]),
+    ['install', 'remove', 'install', 'install'],
+  )
+  assert.equal(seen[1][1], PACKAGE)
+  assert.equal(seen[3][1], previous)
+  assert.notEqual(seen[3][1], seen[0][1])
+  assert.equal(seen[3][2].enabled, true)
+  assert.match(seen[3][2].requestId, /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/)
+  assert.notEqual(seen[3][2].requestId, id)
+  assert.equal(bundle.installed, true)
+  assert.equal(bundle.version, '0.5.0')
+  assert.equal(bundle.enabled, true)
+  const view = await updater.reconcile(id)
+  assert.equal(view.status, 'failed')
+  assert.equal(view.reason, 'restored')
+  assert.equal(view.installedVersion, '0.5.0')
+  const restarted = new PluginUpdates({
+    manager: () => manager,
+    profileDir: directory,
+    version: '0.5.0',
+    runtimeVersion: async () => '0.2.1-alpha.3',
+  })
+  t.after(() => restarted.dispose())
+  const again = await restarted.reconcile(id)
+  assert.equal(again.status, 'failed')
+  assert.equal(again.reason, 'restored')
+  assert.equal(again.installedVersion, '0.5.0')
+})
+
+test('a thrown install after removal still restores the previous spec', async t => {
+  const { bundle, seen } = await runUpdate(t, ({ updater, manager, bundle, seen }) => {
+    manager.removeBundle = async name => {
+      seen.push(['remove', name])
+      updater.dispose()
+      bundle.installed = false
+      delete bundle.version
+      return { changed: true, application: 'applied', stage: 'remove', target: name }
+    }
+    manager.installBundle = async (spec, options) => {
+      seen.push(['install', spec, options])
+      const attempt = seen.filter(item => item[0] === 'install').length
+      if (attempt === 1) return alreadyInstalled()
+      if (attempt === 2) throw new Error('pnpm failed')
+      bundle.installed = true
+      bundle.version = '0.5.0'
+      bundle.enabled = options.enabled
+      bundle.source = spec
+      return {
+        changed: true,
+        application: 'restart-required',
+        stage: 'install',
+        target: PACKAGE,
+        bundle: PACKAGE,
+        version: '0.5.0',
+        enabled: options.enabled,
+      }
+    }
+  })
+  assert.deepEqual(
+    seen.map(item => item[0]),
+    ['install', 'remove', 'install', 'install'],
+  )
+  assert.equal(bundle.installed, true)
+  assert.equal(bundle.version, '0.5.0')
+  assert.equal(bundle.enabled, false)
+  assert.equal(seen[3][2].enabled, false)
+})
+
+test('a failed restore tells the user the plugin is still missing', async t => {
+  const { id, updater, bundle, seen } = await runUpdate(t, ({ manager, bundle, seen }) => {
+    manager.removeBundle = async name => {
+      seen.push(['remove', name])
+      bundle.installed = false
+      delete bundle.version
+      return { changed: true, application: 'applied', stage: 'remove', target: name }
+    }
+    manager.installBundle = async spec => {
+      seen.push(['install', spec])
       if (seen.filter(item => item[0] === 'install').length === 1) return alreadyInstalled()
       return {
         changed: false,
@@ -555,19 +670,97 @@ test('an install that fails after removal stays unknown', async t => {
       }
     }
   })
+  assert.deepEqual(
+    seen.map(item => item[0]),
+    ['install', 'remove', 'install', 'install'],
+  )
+  assert.equal(seen[3][1], `github:${REPOSITORY}`)
+  assert.equal(bundle.installed, false)
+  const view = await updater.reconcile(id)
+  assert.equal(view.status, 'failed')
+  assert.equal(view.reason, 'restore-failed')
+  const locales = readFileSync(new URL('../../src/client/settings/locales.ts', import.meta.url), 'utf8')
+  for (const key of ['updateReason_restored', 'updateReason_restore-failed'])
+    assert.equal(locales.split(key).length - 1, 3)
+})
+
+test('a failed install that leaves the package present does not install the previous spec', async t => {
+  const { id, updater, seen } = await runUpdate(t, ({ manager, bundle, seen }) => {
+    manager.removeBundle = async name => {
+      seen.push(['remove', name])
+      bundle.installed = false
+      return { changed: true, application: 'applied', stage: 'remove', target: name }
+    }
+    manager.installBundle = async spec => {
+      seen.push(['install', spec])
+      if (seen.filter(item => item[0] === 'install').length === 1) return alreadyInstalled()
+      bundle.installed = true
+      bundle.version = '0.5.0'
+      return {
+        changed: false,
+        application: 'failed',
+        stage: 'install',
+        target: PACKAGE,
+        error: { code: 'operation-error' },
+      }
+    }
+  })
+  assert.deepEqual(
+    seen.map(item => item[0]),
+    ['install', 'remove', 'install'],
+  )
   const view = await updater.reconcile(id)
   assert.equal(view.status, 'unknown')
   assert.equal(view.reason, 'reinstall')
-  const restarted = new PluginUpdates({
-    manager: () => manager,
-    profileDir: directory,
-    version: '0.5.0',
-    runtimeVersion: async () => '0.2.1-alpha.3',
+})
+
+test('unconfirmed absence after removal does not guess a restore', async t => {
+  const { id, updater, seen } = await runUpdate(t, ({ manager, bundle, seen }) => {
+    let removed = false
+    manager.removeBundle = async name => {
+      seen.push(['remove', name])
+      bundle.installed = false
+      removed = true
+      return { changed: true, application: 'applied', stage: 'remove', target: name }
+    }
+    const list = manager.listBundles
+    let threw = false
+    manager.listBundles = async () => {
+      if (removed && !threw) {
+        threw = true
+        throw new Error('list')
+      }
+      return list()
+    }
+    manager.installBundle = async spec => {
+      seen.push(['install', spec])
+      if (seen.filter(item => item[0] === 'install').length === 1) return alreadyInstalled()
+      return {
+        changed: false,
+        application: 'failed',
+        stage: 'install',
+        target: PACKAGE,
+        error: { code: 'operation-error' },
+      }
+    }
   })
-  t.after(() => restarted.dispose())
-  const again = await restarted.reconcile(id)
-  assert.equal(again.status, 'unknown')
-  assert.equal(again.reason, 'reinstall')
+  assert.deepEqual(
+    seen.map(item => item[0]),
+    ['install', 'remove', 'install'],
+  )
+  const view = await updater.reconcile(id)
+  assert.equal(view.status, 'unknown')
+  assert.equal(view.reason, 'reinstall')
+})
+
+test('settleRemoval keeps a successful install from being reported as a restore', () => {
+  const applied = { status: 'applied', reinstall: true, reason: 'reinstall' }
+  settleRemoval(applied)
+  assert.equal(applied.status, 'applied')
+  const restored = { status: 'applied', restore: 'ok' }
+  settleRemoval(restored)
+  assert.equal(restored.status, 'failed')
+  assert.equal(restored.reason, 'restored')
 })
 
 test('already-installed without removeBundle stays a failed install', async t => {

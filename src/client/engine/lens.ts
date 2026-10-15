@@ -13,6 +13,7 @@
 import { ATTR_LENS, ATTR_OWNED, type SurfaceKind } from '../../shared/dom.ts'
 import { inkShift, type InkShift } from './ink.ts'
 import { bezelFor, lensPixels, scaleFor } from './lens-map.ts'
+import { pngDataUrl } from './png-url.ts'
 import { lensRule, type DynamicSheet } from './sheet.ts'
 
 const SVG = 'http://www.w3.org/2000/svg'
@@ -256,15 +257,14 @@ export class Lenses {
   private map(key: string, geometry: Parameters<typeof lensPixels>[0]): string | undefined {
     const cached = this.maps.get(key)
     if (cached !== undefined) return cached
-    const canvas = this.doc.createElement('canvas')
-    canvas.width = geometry.width
-    canvas.height = geometry.height
-    const context = canvas.getContext('2d')
-    if (!context) return undefined
-    const image = context.createImageData(geometry.width, geometry.height)
-    image.data.set(lensPixels(geometry))
-    context.putImageData(image, 0, 0)
-    const url = canvas.toDataURL('image/png')
+    // Same RGBA a canvas PNG would carry. Encoding here avoids the GPU readback
+    // `toDataURL` does after `putImageData` on a hardware-backed canvas.
+    let url: string
+    try {
+      url = pngDataUrl(lensPixels(geometry), geometry.width, geometry.height)
+    } catch {
+      return undefined
+    }
     this.maps.set(key, url)
     if (this.maps.size > MAP_CACHE) {
       const oldest = this.maps.keys().next().value

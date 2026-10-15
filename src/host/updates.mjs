@@ -282,6 +282,83 @@ function removalAccepted(result) {
   )
 }
 
+function failedInstall(code = 'operation-error') {
+  return {
+    changed: false,
+    application: 'failed',
+    stage: 'install',
+    target: PACKAGE,
+    error: { code },
+  }
+}
+
+/**
+ * Put the previous spec back when removal committed and the new install did not
+ * leave this package installed. A new request id keeps the failed install's id
+ * from being reused. `ok` means the previous spec was accepted again; `failed`
+ * means that reinstall also failed and the package is still absent.
+ * @param {Manager} manager
+ * @param {ChangeResult | null | undefined} installed
+ * @param {{ source?: string, enabled?: boolean } | undefined} previous
+ * @returns {Promise<'ok' | 'failed' | undefined>}
+ */
+async function restoreIfMissing(manager, installed, previous) {
+  const source = previous?.source
+  if (typeof source !== 'string' || source === '') return undefined
+  const outcome = installed?.application
+  if ((outcome !== 'failed' && outcome !== 'cancelled') || installed?.error?.code === 'already-installed')
+    return undefined
+  let present
+  try {
+    present = (await manager.listBundles()).some(row => row?.name === PACKAGE && row.installed)
+  } catch {
+    // Absence is not confirmed, so do not install a second copy.
+    return undefined
+  }
+  if (present) return undefined
+  try {
+    const restored = await manager.installBundle(source, {
+      enabled: previous.enabled === true,
+      requestId: updateRequestId(),
+    })
+    const accepted =
+      restored && !restored.error && (restored.application === 'applied' || restored.application === 'restart-required')
+    if (!accepted) return 'failed'
+    try {
+      const back = (await manager.listBundles()).some(row => row?.name === PACKAGE && row.installed)
+      return back ? 'ok' : 'failed'
+    } catch {
+      return 'ok'
+    }
+  } catch {
+    return 'failed'
+  }
+}
+
+/**
+ * Record a removal that the new install did not replace.
+ * `restored` / `restore-failed` are explicit. `reinstall` remains the case
+ * where the package was removed and the previous spec could not be put back
+ * because absence was not confirmed.
+ * @param {object} operation
+ */
+export function settleRemoval(operation) {
+  if (operation.restore === 'ok') {
+    operation.status = 'failed'
+    operation.reason = 'restored'
+    return
+  }
+  if (operation.restore === 'failed') {
+    operation.status = 'failed'
+    operation.reason = 'restore-failed'
+    return
+  }
+  if (operation.reinstall && operation.status === 'failed') {
+    operation.status = 'unknown'
+    operation.reason = 'reinstall'
+  }
+}
+
 /**
  * Install one verified release.
  * With HMR, DSH 0.2.1-alpha.3 returns `already-installed` from `installBundle`
@@ -293,10 +370,16 @@ function removalAccepted(result) {
  * lookup after disposal. Without HMR, removal of a running bundle returns
  * `stop-profile` and leaves it installed; installing over it reports
  * `restart-required`, including on 0.2.1-alpha.2. Any other removal failure is
- * not followed by an install. `removed` means the package was removed, so a
- * failed reinstall is a partial change.
+ * not followed by an install. When removal commits and the new install fails
+ * with this package absent, the previous spec is installed again under a new
+ * request id. That restore runs on the same captured manager, including after
+ * this plugin has been disposed.
+ * @param {Manager} manager
+ * @param {string} spec
+ * @param {import('@deepseek-ai/dsh-plugin-manager/types').InstallBundleOptions} options
+ * @param {{ source?: string, enabled?: boolean } | undefined} [previous]
  */
-export async function installRelease(manager, spec, options) {
+export async function installRelease(manager, spec, options, previous) {
   const installed = await manager.installBundle(spec, options)
   if (installed?.error?.code !== 'already-installed' || typeof manager.removeBundle !== 'function') {
     return { result: installed, removed: false }
@@ -306,7 +389,14 @@ export async function installRelease(manager, spec, options) {
     return { result: await manager.installBundle(spec, options), removed: false }
   }
   if (!removalAccepted(removed)) return { result: removed ?? installed, removed: false }
-  return { result: await manager.installBundle(spec, options), removed: true }
+  let result
+  try {
+    result = await manager.installBundle(spec, options)
+  } catch {
+    result = failedInstall()
+  }
+  const restore = await restoreIfMissing(manager, result, previous)
+  return { result, removed: true, ...(restore ? { restore } : {}) }
 }
 
 /** Optional manager is resolved for every operation; the glass material never depends on it. */
@@ -512,21 +602,30 @@ export class PluginUpdates {
       if (compareVersions(candidate.version, final.bundle.version) <= 0) throw new Error('stale-candidate')
       managerInvoked = true
       const manager = final.manager
+      const previous = { source: final.bundle.source, enabled: final.bundle.enabled === true }
       const outcome = await retainInstall(
-        installRelease(manager, spec, {
-          enabled: final.bundle.enabled,
-          requestId: operation.requestId,
-          saveExact: true,
-        }),
+        installRelease(
+          manager,
+          spec,
+          {
+            enabled: final.bundle.enabled,
+            requestId: operation.requestId,
+            saveExact: true,
+          },
+          previous,
+        ),
       )
       operation.result = safeResult(outcome.result)
-      if (outcome.removed) operation.reinstall = true
-      const installed = (await manager.listBundles()).find(item => item.name === PACKAGE)
-      operation.status = resultState(outcome.result, operation.version, this.version, installed)
-      if (operation.reinstall && operation.status === 'failed') {
-        operation.status = 'unknown'
-        operation.reason = 'reinstall'
+      if (outcome.restore) operation.restore = outcome.restore
+      let installed
+      try {
+        installed = (await manager.listBundles()).find(item => item.name === PACKAGE)
+      } catch {
+        installed = undefined
       }
+      operation.status = resultState(outcome.result, operation.version, this.version, installed)
+      if (outcome.removed && !outcome.restore && operation.status === 'failed') operation.reinstall = true
+      settleRemoval(operation)
     } catch (error) {
       operation.status = managerInvoked ? 'unknown' : 'failed'
       operation.reason = reasonOf(error)
@@ -565,10 +664,6 @@ export class PluginUpdates {
     const bundle = (await this.manager()?.listBundles())?.find(item => item.name === PACKAGE)
     const installed = bundle?.version
     if (operation.result) operation.status = resultState(operation.result, operation.version, this.version, bundle)
-    if (operation.reinstall && operation.status === 'failed') {
-      operation.status = 'unknown'
-      operation.reason = 'reinstall'
-    }
     if (
       ['installing', 'restart-required', 'unknown', 'applied'].includes(operation.status) &&
       this.version === operation.version
@@ -578,6 +673,7 @@ export class PluginUpdates {
           ? 'applied'
           : 'unknown'
     }
+    settleRemoval(operation)
     if (operation.status === 'applied' && operation.reason === 'reinstall') delete operation.reason
     return { ...this.base(), ...operation, installedVersion: installed }
   }

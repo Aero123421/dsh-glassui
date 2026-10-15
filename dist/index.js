@@ -2352,7 +2352,62 @@ function removalAccepted(result) {
     result && !result.error && (result.application === "applied" || result.application === "restart-required")
   );
 }
-async function installRelease(manager, spec, options) {
+function failedInstall(code = "operation-error") {
+  return {
+    changed: false,
+    application: "failed",
+    stage: "install",
+    target: PACKAGE,
+    error: { code }
+  };
+}
+async function restoreIfMissing(manager, installed, previous) {
+  const source = previous?.source;
+  if (typeof source !== "string" || source === "") return void 0;
+  const outcome = installed?.application;
+  if (outcome !== "failed" && outcome !== "cancelled" || installed?.error?.code === "already-installed")
+    return void 0;
+  let present;
+  try {
+    present = (await manager.listBundles()).some((row) => row?.name === PACKAGE && row.installed);
+  } catch {
+    return void 0;
+  }
+  if (present) return void 0;
+  try {
+    const restored = await manager.installBundle(source, {
+      enabled: previous.enabled === true,
+      requestId: updateRequestId()
+    });
+    const accepted = restored && !restored.error && (restored.application === "applied" || restored.application === "restart-required");
+    if (!accepted) return "failed";
+    try {
+      const back = (await manager.listBundles()).some((row) => row?.name === PACKAGE && row.installed);
+      return back ? "ok" : "failed";
+    } catch {
+      return "ok";
+    }
+  } catch {
+    return "failed";
+  }
+}
+function settleRemoval(operation) {
+  if (operation.restore === "ok") {
+    operation.status = "failed";
+    operation.reason = "restored";
+    return;
+  }
+  if (operation.restore === "failed") {
+    operation.status = "failed";
+    operation.reason = "restore-failed";
+    return;
+  }
+  if (operation.reinstall && operation.status === "failed") {
+    operation.status = "unknown";
+    operation.reason = "reinstall";
+  }
+}
+async function installRelease(manager, spec, options, previous) {
   const installed = await manager.installBundle(spec, options);
   if (installed?.error?.code !== "already-installed" || typeof manager.removeBundle !== "function") {
     return { result: installed, removed: false };
@@ -2362,7 +2417,14 @@ async function installRelease(manager, spec, options) {
     return { result: await manager.installBundle(spec, options), removed: false };
   }
   if (!removalAccepted(removed)) return { result: removed ?? installed, removed: false };
-  return { result: await manager.installBundle(spec, options), removed: true };
+  let result;
+  try {
+    result = await manager.installBundle(spec, options);
+  } catch {
+    result = failedInstall();
+  }
+  const restore = await restoreIfMissing(manager, result, previous);
+  return { result, removed: true, ...restore ? { restore } : {} };
 }
 var PluginUpdates = class {
   constructor({ manager, profileDir, runtimeVersion, isBusy = () => false, fetcher = fetch, version }) {
@@ -2540,21 +2602,30 @@ var PluginUpdates = class {
       if (compareVersions(candidate.version, final.bundle.version) <= 0) throw new Error("stale-candidate");
       managerInvoked = true;
       const manager = final.manager;
+      const previous = { source: final.bundle.source, enabled: final.bundle.enabled === true };
       const outcome = await retainInstall(
-        installRelease(manager, spec, {
-          enabled: final.bundle.enabled,
-          requestId: operation.requestId,
-          saveExact: true
-        })
+        installRelease(
+          manager,
+          spec,
+          {
+            enabled: final.bundle.enabled,
+            requestId: operation.requestId,
+            saveExact: true
+          },
+          previous
+        )
       );
       operation.result = safeResult(outcome.result);
-      if (outcome.removed) operation.reinstall = true;
-      const installed = (await manager.listBundles()).find((item) => item.name === PACKAGE);
-      operation.status = resultState(outcome.result, operation.version, this.version, installed);
-      if (operation.reinstall && operation.status === "failed") {
-        operation.status = "unknown";
-        operation.reason = "reinstall";
+      if (outcome.restore) operation.restore = outcome.restore;
+      let installed;
+      try {
+        installed = (await manager.listBundles()).find((item) => item.name === PACKAGE);
+      } catch {
+        installed = void 0;
       }
+      operation.status = resultState(outcome.result, operation.version, this.version, installed);
+      if (outcome.removed && !outcome.restore && operation.status === "failed") operation.reinstall = true;
+      settleRemoval(operation);
     } catch (error) {
       operation.status = managerInvoked ? "unknown" : "failed";
       operation.reason = reasonOf(error);
@@ -2591,13 +2662,10 @@ var PluginUpdates = class {
     const bundle = (await this.manager()?.listBundles())?.find((item) => item.name === PACKAGE);
     const installed = bundle?.version;
     if (operation.result) operation.status = resultState(operation.result, operation.version, this.version, bundle);
-    if (operation.reinstall && operation.status === "failed") {
-      operation.status = "unknown";
-      operation.reason = "reinstall";
-    }
     if (["installing", "restart-required", "unknown", "applied"].includes(operation.status) && this.version === operation.version) {
       operation.status = bundle?.installed && !bundle.error && !bundle.readOnlyReason && installed === operation.version ? "applied" : "unknown";
     }
+    settleRemoval(operation);
     if (operation.status === "applied" && operation.reason === "reinstall") delete operation.reason;
     return { ...this.base(), ...operation, installedVersion: installed };
   }

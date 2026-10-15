@@ -210,6 +210,7 @@ let browserPromise
 export function browser() {
   browserPromise ??= chromium.launch({
     executablePath: process.env.GLASSUI_CHROMIUM || undefined,
+    args: (process.env.GLASSUI_CHROMIUM_ARGS ?? '').split(/\s+/).filter(Boolean),
   })
   return browserPromise
 }
@@ -229,6 +230,8 @@ export async function openFixture(options = {}) {
   ).newContext({
     viewport: options.viewport ?? { width: 1440, height: 900 },
     deviceScaleFactor: options.deviceScaleFactor ?? 1,
+    hasTouch: options.hasTouch === true,
+    isMobile: options.isMobile === true,
     colorScheme: options.dark ? 'dark' : 'light',
     reducedMotion: options.reducedMotion ? 'reduce' : 'no-preference',
   })
