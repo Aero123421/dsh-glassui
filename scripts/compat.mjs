@@ -170,6 +170,7 @@ if (existsSync(bootManifest)) runtimeVersion = JSON.parse(await readFile(bootMan
 const peers = []
 for (const [name, range] of Object.entries(manifest.peerDependencies ?? {})) {
   if (name !== '@deepseek-ai/dsh' && !name.startsWith('@deepseek-ai/dsh-')) continue
+  // Every alternative needs a lower and an upper bound inside the running series.
   const ok = peerRangeDecision(range, runtimeVersion) === 'ok'
   peers.push({ name, range, runtime: runtimeVersion, required: true, ok })
 }

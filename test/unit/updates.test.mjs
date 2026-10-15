@@ -17,6 +17,7 @@ import {
   releaseCandidate,
   checkCompatibility,
   peerRangeDecision,
+  BUNDLE_LIST_ATTEMPTS,
   resultState,
   sourceKind,
   boundedFetch,
@@ -377,10 +378,27 @@ test('published DSH peer range admits 0.2.1-alpha.3 and later 0.2 prereleases', 
   assert.equal(semver.satisfies('0.2.1-alpha.3', range), false)
 })
 
-test('peer ranges without an upper bound inside the running line are unknown', () => {
+test('peer ranges need a lower and an upper bound inside the running series', () => {
   const candidate = releaseCandidate(release, '0.5.0')
   const runtime = '0.2.1-alpha.3'
-  for (const range of ['*', 'x', 'X', '>=0', '', '   ', '<99', '^0', '>=0.2.0-rc.2 <0.3.0', '>=0.2.0']) {
+  for (const range of [
+    '*',
+    'x',
+    'X',
+    '>=0',
+    '',
+    '   ',
+    '<99',
+    '^0',
+    '>=0.2.0-rc.2 <0.3.0',
+    '>=0.2.0',
+    '<0.3.0-0',
+    '<=0.2.9',
+    '<0.2.2',
+    '>=0.0.0 <0.3.0-0',
+    '>=0.2.0-rc.1 <0.3.0-0',
+    '>=0.2.0-rc.2 <0.3.0-0 || >=1.0.0 <2.0.0-0',
+  ]) {
     assert.equal(peerRangeDecision(range, runtime), 'unknown', range)
     assert.throws(
       () => checkCompatibility({ ...pkg, peerDependencies: { '@deepseek-ai/dsh': range } }, candidate, runtime),
@@ -388,12 +406,16 @@ test('peer ranges without an upper bound inside the running line are unknown', (
       range,
     )
   }
+  assert.equal(peerRangeDecision('>=0.2.0-rc.2 <0.3.0-0', runtime), 'ok')
+  assert.equal(peerRangeDecision('0.2.1-alpha.2', '0.2.1-alpha.2'), 'ok')
+  assert.equal(peerRangeDecision('0.2.1-alpha.2', '0.2.1'), 'incompatible')
   assert.equal(peerRangeDecision('^1.2.0', '1.2.3'), 'ok')
   assert.equal(
     checkCompatibility({ ...pkg, peerDependencies: { '@deepseek-ai/dsh': '^1.2.0' } }, candidate, '1.2.3'),
     '1.2.3',
   )
   assert.equal(peerRangeDecision('<99', '1.2.3'), 'unknown')
+  assert.equal(peerRangeDecision('>=0.0.0 <2.0.0-0', '1.2.3'), 'unknown')
   assert.equal(peerRangeDecision('^0', '0.2.1-alpha.3'), 'unknown')
   assert.throws(
     () => checkCompatibility({ ...pkg, peerDependencies: { '@deepseek-ai/dsh': '^1.2.0' } }, candidate, '2.0.0'),
@@ -599,6 +621,8 @@ test('an install that fails after removal puts the previous spec back', async t 
         )
         assert.equal(journal.restoreRequestId, options.requestId)
         assert.equal(journal.previousVersion, '0.5.0')
+        assert.equal(journal.previousSource, previous)
+        assert.equal(journal.previousEnabled, true)
         assert.equal(journal.status, 'installing')
         bundle.installed = true
         bundle.version = '0.5.0'
@@ -753,34 +777,39 @@ test('a failed install that leaves the package present does not install the prev
   assert.equal(view.reason, 'reinstall')
 })
 
-test('unconfirmed absence after removal does not guess a restore', async t => {
-  const { id, updater, seen } = await runUpdate(t, ({ manager, bundle, seen }) => {
+test('a list that keeps failing does not restore until a later reconcile confirms absence', async t => {
+  const { id, updater, bundle, seen } = await runUpdate(t, ({ manager, bundle, seen }) => {
     let removed = false
     manager.removeBundle = async name => {
       seen.push(['remove', name])
       bundle.installed = false
+      delete bundle.version
       removed = true
       return { changed: true, application: 'applied', stage: 'remove', target: name }
     }
     const list = manager.listBundles
-    let threw = false
+    let failures = 0
     manager.listBundles = async () => {
-      if (removed && !threw) {
-        threw = true
+      if (removed && failures < BUNDLE_LIST_ATTEMPTS) {
+        failures += 1
         throw new Error('list')
       }
       return list()
     }
-    manager.installBundle = async spec => {
-      seen.push(['install', spec])
-      if (seen.filter(item => item[0] === 'install').length === 1) return alreadyInstalled()
-      return {
-        changed: false,
-        application: 'failed',
-        stage: 'install',
-        target: PACKAGE,
-        error: { code: 'operation-error' },
-      }
+    manager.installBundle = async (spec, options) => {
+      seen.push(['install', spec, options])
+      const attempt = seen.filter(item => item[0] === 'install').length
+      if (attempt === 1) return alreadyInstalled()
+      if (attempt === 2)
+        return {
+          changed: false,
+          application: 'failed',
+          stage: 'install',
+          target: PACKAGE,
+          error: { code: 'operation-error' },
+        }
+      Object.assign(bundle, { installed: true, version: '0.5.0', enabled: options.enabled, source: spec })
+      return previousInstall(spec, options)
     }
   })
   assert.deepEqual(
@@ -788,8 +817,14 @@ test('unconfirmed absence after removal does not guess a restore', async t => {
     ['install', 'remove', 'install'],
   )
   const view = await updater.reconcile(id)
-  assert.equal(view.status, 'unknown')
-  assert.equal(view.reason, 'reinstall')
+  assert.deepEqual(
+    seen.map(item => item[0]),
+    ['install', 'remove', 'install', 'install'],
+  )
+  assert.equal(seen[3][1], `github:${REPOSITORY}`)
+  assert.equal(view.status, 'failed')
+  assert.equal(view.reason, 'restored')
+  assert.equal(bundle.version, '0.5.0')
 })
 
 function previousInstall(spec, options) {
@@ -993,7 +1028,7 @@ test('a restore is not confirmed when the follow-up list fails', async t => {
     const list = manager.listBundles
     let checks = 0
     manager.listBundles = async () => {
-      if (verify && checks === 0) {
+      if (verify && checks < BUNDLE_LIST_ATTEMPTS) {
         checks += 1
         throw new Error('list')
       }
@@ -1187,6 +1222,276 @@ test('settleRemoval keeps a successful install from being reported as a restore'
   settleRemoval(unconfirmed)
   assert.equal(unconfirmed.status, 'unknown')
   assert.equal(unconfirmed.reason, 'reinstall')
+})
+
+test('a transient list failure still restores when the package is gone', async t => {
+  const { id, updater, bundle, seen } = await runUpdate(t, ({ manager, bundle, seen }) => {
+    let removed = false
+    manager.removeBundle = async name => {
+      seen.push(['remove', name])
+      bundle.installed = false
+      delete bundle.version
+      removed = true
+      return { changed: true, application: 'applied', stage: 'remove', target: name }
+    }
+    const list = manager.listBundles
+    let failures = 0
+    manager.listBundles = async () => {
+      if (removed && failures < 1) {
+        failures += 1
+        throw new Error('list')
+      }
+      return list()
+    }
+    manager.installBundle = async (spec, options) => {
+      seen.push(['install', spec, options])
+      const attempt = seen.filter(item => item[0] === 'install').length
+      if (attempt === 1) return alreadyInstalled()
+      if (attempt === 2)
+        return {
+          changed: false,
+          application: 'failed',
+          stage: 'install',
+          target: PACKAGE,
+          error: { code: 'operation-error' },
+        }
+      Object.assign(bundle, { installed: true, version: '0.5.0', enabled: options.enabled, source: spec })
+      return previousInstall(spec, options)
+    }
+  })
+  assert.deepEqual(
+    seen.map(item => item[0]),
+    ['install', 'remove', 'install', 'install'],
+  )
+  assert.equal(seen[3][1], `github:${REPOSITORY}`)
+  const view = await updater.reconcile(id)
+  assert.equal(view.status, 'failed')
+  assert.equal(view.reason, 'restored')
+  assert.equal(bundle.version, '0.5.0')
+})
+
+test('a transient list failure after stop-profile still sees the installed package', async t => {
+  const { id, updater, bundle, seen } = await runUpdate(t, ({ manager, bundle, seen }) => {
+    let removed = false
+    manager.removeBundle = async name => {
+      seen.push(['remove', name])
+      removed = true
+      return { changed: false, application: 'failed', stage: 'remove', target: name, error: { code: 'stop-profile' } }
+    }
+    const list = manager.listBundles
+    let failures = 0
+    manager.listBundles = async () => {
+      if (removed && failures < 1) {
+        failures += 1
+        throw new Error('list')
+      }
+      return list()
+    }
+    manager.installBundle = async spec => {
+      seen.push(['install', spec])
+      if (seen.filter(item => item[0] === 'install').length === 1) return alreadyInstalled()
+      bundle.version = version
+      return {
+        changed: true,
+        application: 'restart-required',
+        stage: 'install',
+        target: PACKAGE,
+        bundle: PACKAGE,
+        version,
+      }
+    }
+  })
+  assert.deepEqual(
+    seen.map(item => item[0]),
+    ['install', 'remove', 'install'],
+  )
+  assert.equal(bundle.installed, true)
+  assert.equal(bundle.version, version)
+  assert.equal(seen[2][1], seen[0][1])
+  assert.notEqual(seen[2][1], `github:${REPOSITORY}`)
+  const view = await updater.reconcile(id)
+  assert.equal(seen.length, 3)
+  assert.notEqual(view.reason, 'restored')
+  assert.notEqual(view.reason, 'restore-pending')
+})
+
+test('a transient list failure after a failed removal still restores when the package is gone', async t => {
+  const { id, updater, seen } = await runUpdate(t, ({ manager, bundle, seen }) => {
+    let removed = false
+    manager.removeBundle = async name => {
+      seen.push(['remove', name])
+      bundle.installed = false
+      delete bundle.version
+      removed = true
+      return { changed: false, application: 'failed', stage: 'remove', target: name, error: { code: 'not-removable' } }
+    }
+    const list = manager.listBundles
+    let failures = 0
+    manager.listBundles = async () => {
+      if (removed && failures < 1) {
+        failures += 1
+        throw new Error('list')
+      }
+      return list()
+    }
+    manager.installBundle = async (spec, options) => {
+      seen.push(['install', spec, options])
+      if (seen.filter(item => item[0] === 'install').length === 1) return alreadyInstalled()
+      Object.assign(bundle, { installed: true, version: '0.5.0', enabled: options.enabled, source: spec })
+      return previousInstall(spec, options)
+    }
+  })
+  assert.deepEqual(
+    seen.map(item => item[0]),
+    ['install', 'remove', 'install'],
+  )
+  assert.equal(seen[2][1], `github:${REPOSITORY}`)
+  assert.equal((await updater.reconcile(id)).reason, 'restored')
+})
+
+test('a transient list failure after restore still confirms the previous version', async t => {
+  const { id, updater } = await runUpdate(t, ({ manager, bundle }) => {
+    let verify = false
+    manager.removeBundle = async name => {
+      bundle.installed = false
+      delete bundle.version
+      return { changed: true, application: 'applied', stage: 'remove', target: name }
+    }
+    const list = manager.listBundles
+    let checks = 0
+    manager.listBundles = async () => {
+      if (verify && checks < 1) {
+        checks += 1
+        throw new Error('list')
+      }
+      return list()
+    }
+    let attempt = 0
+    manager.installBundle = async spec => {
+      attempt += 1
+      if (attempt === 1) return alreadyInstalled()
+      if (attempt === 2)
+        return {
+          changed: false,
+          application: 'failed',
+          stage: 'install',
+          target: PACKAGE,
+          error: { code: 'operation-error' },
+        }
+      verify = true
+      bundle.installed = true
+      bundle.version = '0.5.0'
+      return previousInstall(spec)
+    }
+  })
+  const view = await updater.reconcile(id)
+  assert.equal(view.status, 'failed')
+  assert.equal(view.reason, 'restored')
+  assert.equal(view.installedVersion, '0.5.0')
+})
+
+test('reconcile installs the saved restore when the plugin is absent and status is unknown', async t => {
+  const { updater, manager, bundle, calls } = await fixture(t)
+  const id = randomUUID()
+  const source = `github:${REPOSITORY}`
+  bundle.installed = false
+  delete bundle.version
+  manager.installBundle = async (spec, options) => {
+    calls.push([spec, options])
+    Object.assign(bundle, { installed: true, version: '0.5.0', enabled: options.enabled, source: spec })
+    return previousInstall(spec, options)
+  }
+  await updater.save(
+    {
+      requestId: id,
+      version,
+      status: 'unknown',
+      reason: 'reinstall',
+      previousSource: source,
+      previousVersion: '0.5.0',
+      previousEnabled: true,
+    },
+    true,
+  )
+  const view = await updater.reconcile(id)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0][0], source)
+  assert.equal(calls[0][1].enabled, true)
+  assert.match(calls[0][1].requestId, /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/)
+  assert.equal(view.status, 'failed')
+  assert.equal(view.reason, 'restored')
+  assert.equal(view.installedVersion, '0.5.0')
+  const again = await updater.reconcile(id)
+  assert.equal(calls.length, 1)
+  assert.equal(again.reason, 'restored')
+})
+
+test('reconcile does not install a saved restore when the version comes back different', async t => {
+  const { updater, manager, bundle, calls } = await fixture(t)
+  const id = randomUUID()
+  bundle.installed = false
+  delete bundle.version
+  manager.installBundle = async spec => {
+    calls.push([spec])
+    bundle.installed = true
+    bundle.version = '0.4.0'
+    return {
+      changed: true,
+      application: 'applied',
+      stage: 'install',
+      target: PACKAGE,
+      bundle: PACKAGE,
+      version: '0.4.0',
+    }
+  }
+  await updater.save(
+    {
+      requestId: id,
+      version,
+      status: 'unknown',
+      previousSource: `github:${REPOSITORY}`,
+      previousVersion: '0.5.0',
+      previousEnabled: false,
+    },
+    true,
+  )
+  const view = await updater.reconcile(id)
+  assert.equal(calls.length, 1)
+  assert.equal(view.status, 'failed')
+  assert.equal(view.reason, 'restore-failed')
+  assert.notEqual(view.reason, 'restored')
+})
+
+test('reconcile does not install a saved restore when the list fails or the source was not saved', async t => {
+  const { updater, manager, bundle, calls } = await fixture(t)
+  const id = randomUUID()
+  bundle.installed = false
+  delete bundle.version
+  manager.installBundle = async spec => {
+    calls.push([spec])
+    return previousInstall(spec)
+  }
+  manager.listBundles = async () => {
+    throw new Error('list')
+  }
+  await updater.save(
+    {
+      requestId: id,
+      version,
+      status: 'unknown',
+      previousSource: `github:${REPOSITORY}`,
+      previousVersion: '0.5.0',
+    },
+    true,
+  )
+  await assert.rejects(() => updater.reconcile(id), /list/)
+  assert.equal(calls.length, 0)
+  manager.listBundles = async () => [bundle]
+  await updater.save({ requestId: id, version, status: 'unknown', previousVersion: '0.5.0' }, true)
+  const unseen = await updater.reconcile(id)
+  assert.equal(calls.length, 0)
+  assert.equal(unseen.status, 'unknown')
+  assert.notEqual(unseen.reason, 'restored')
 })
 
 test('already-installed without removeBundle stays a failed install', async t => {

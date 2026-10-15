@@ -25,7 +25,7 @@
 
 ## Install
 
-Requires DSH `>=0.2.0-rc.2 <0.3.0-0`. DSH admits prereleases in that range, including 0.2.1-alpha.3 and later 0.2.x prereleases, and excludes 0.3.0 prereleases. An empty peer range, a wildcard (`*`, `x`, `>=0`), or a range whose upper bound passes the running release line (`<99`, `^0`, or `<0.3.0` on 0.2) is treated as compatibility-unknown. Tested with 0.2.0-rc.2, 0.2.1-alpha.2, and 0.2.1-alpha.3.
+Requires DSH `>=0.2.0-rc.2 <0.3.0-0`. DSH admits prereleases in that range, including 0.2.1-alpha.3 and later 0.2.x prereleases, and excludes 0.3.0 prereleases. An empty peer range, a wildcard (`*`, `x`, `>=0`), a range missing either end (`<0.3.0-0`, `<=0.2.9`, `<0.2.2`), or a range that leaves the running line (`>=0.0.0 <0.3.0-0`, `<99`, `^0`, or `<0.3.0` on 0.2) is treated as compatibility-unknown. Tested with 0.2.0-rc.2, 0.2.1-alpha.2, and 0.2.1-alpha.3.
 
 1. In DSH Web, open **Plugins → Add plugin** and enter `github:Aero123421/dsh-glassui#v0.2.2`.
 2. Or install from a terminal:

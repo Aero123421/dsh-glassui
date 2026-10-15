@@ -201,13 +201,16 @@ export function checkCompatibility(packageJson, candidate, runtime) {
 }
 /**
  * Whether `range` may be used as a DSH peer of the running release.
- * Empty text, wildcards, and any range that admits `runtime` and also admits
- * the next breaking line are `unknown`. On 0.x that line ends before
- * `0.(minor+1).0-0`, so `*`, `x`, `>=0`, `<99`, `^0`, and `<0.3.0` (which
- * still admits `0.3.0-0`) are rejected for a 0.2 runtime. On 1.x and later
- * the line ends before `(major+1).0.0-0`. A range that does not admit
- * `runtime` is `incompatible`, including when its upper bound sits on an
- * older line.
+ * Empty text and wildcards are `unknown`. A range that does not admit
+ * `runtime` is `incompatible`. A range that admits `runtime` is still
+ * `unknown` unless every alternative has both a lower and an upper bound and
+ * the whole range stays inside the running line: nothing older than that
+ * line's floor matches, and nothing from the next line upward matches.
+ * On 0.2 the floor is this plugin's supported `0.2.0-rc.2` and the next line
+ * starts at `0.3.0-0`, so `<0.3.0-0`, `<=0.2.9`, `<0.2.2`, and
+ * `>=0.0.0 <0.3.0-0` are unknown, while `>=0.2.0-rc.2 <0.3.0-0` is ok.
+ * Other 0.x lines run from `0.<minor>.0-0` to `0.<minor+1>.0-0`. On 1.x and
+ * later the line runs from `<major>.0.0-0` to `<major+1>.0.0-0`.
  * @param {unknown} range
  * @param {string} runtime
  * @returns {'ok' | 'unknown' | 'incompatible'}
@@ -216,39 +219,64 @@ export function peerRangeDecision(range, runtime) {
   const current = semver.parse(runtime, { includePrerelease: true })
   if (!current || typeof range !== 'string' || range.trim() === '') return 'unknown'
   const text = range.trim()
-  if (!semver.validRange(text) || !semver.satisfies(runtime, text, { includePrerelease: true }))
-    return semver.validRange(text) ? 'incompatible' : 'unknown'
+  if (!semver.validRange(text)) return 'unknown'
+  if (!semver.satisfies(runtime, text, { includePrerelease: true })) return 'incompatible'
+  return peerRangeInCurrentSeries(text, current) ? 'ok' : 'unknown'
+}
+/** Oldest release of this plugin's 0.2 line. A lower bound below it leaves the line. */
+const DSH_02_FLOOR = '0.2.0-rc.2'
+
+/** @param {import('semver').SemVer} current */
+function seriesFloor(current) {
+  if (current.major === 0 && current.minor === 2) return DSH_02_FLOOR
+  if (current.major === 0) return `${current.major}.${current.minor}.0-0`
+  return `${current.major}.0.0-0`
+}
+/** @param {import('semver').SemVer} current */
+function seriesNext(current) {
+  return current.major === 0 ? `${current.major}.${current.minor + 1}.0-0` : `${current.major + 1}.0.0-0`
+}
+/**
+ * An exact version is both ends. Anything else needs `>` / `>=` or `<` / `<=`.
+ * @param {import('semver').Comparator} item
+ * @param {'lower' | 'upper'} direction
+ */
+function boundedComparator(item, direction) {
+  const exact = (item.operator === '' || item.operator === '=') && typeof item.semver?.version === 'string'
+  if (exact) return true
+  if (direction === 'upper') return item.operator === '<' || item.operator === '<='
+  return item.operator === '>' || item.operator === '>='
+}
+/**
+ * Same rule as dsh-pi-login `peerRangeInCurrentSeries`: every OR branch has a
+ * lower and an upper comparator, nothing older than the series floor matches,
+ * and nothing from the next series upward matches. `<99` and `^0` have a
+ * written cap and still reach outside this floor.
+ * @param {string} range
+ * @param {import('semver').SemVer} current
+ */
+function peerRangeInCurrentSeries(range, current) {
   let parsed
   try {
-    parsed = new semver.Range(text, { includePrerelease: true })
+    parsed = new semver.Range(range, { includePrerelease: true })
   } catch {
-    return 'unknown'
+    return false
   }
-  const ceiling = semver.parse(
-    current.major === 0 ? `${current.major}.${current.minor + 1}.0-0` : `${current.major + 1}.0.0-0`,
-    { includePrerelease: true },
-  )
-  if (!ceiling || !rangeStaysWithin(parsed, ceiling)) return 'unknown'
-  return 'ok'
-}
-/** @param {import('semver').Range} parsed @param {import('semver').SemVer} ceiling */
-function rangeStaysWithin(parsed, ceiling) {
   if (parsed.set.length === 0) return false
-  for (const set of parsed.set) {
-    if (!set.some(comparator => comparatorCaps(comparator, ceiling))) return false
+  const shaped = parsed.set.every(
+    comparators =>
+      comparators.some(item => boundedComparator(item, 'lower')) &&
+      comparators.some(item => boundedComparator(item, 'upper')),
+  )
+  if (!shaped) return false
+  const options = { includePrerelease: true }
+  try {
+    if (semver.intersects(range, `<${seriesFloor(current)}`, options)) return false
+    if (semver.intersects(range, `>=${seriesNext(current)}`, options)) return false
+  } catch {
+    return false
   }
   return true
-}
-/** @param {import('semver').Comparator} comparator @param {import('semver').SemVer} ceiling */
-function comparatorCaps(comparator, ceiling) {
-  const bound = comparator?.semver
-  // `*` uses an internal ANY symbol, which has no compare method.
-  if (!bound || typeof bound.compare !== 'function') return false
-  const order = bound.compare(ceiling)
-  if (comparator.operator === '<') return order <= 0
-  if (comparator.operator === '<=') return order < 0
-  if (comparator.operator === '' || comparator.operator === '=') return order < 0
-  return false
 }
 export function packageManifest(bytes) {
   const tar = gunzipSync(bytes, { maxOutputLength: 128 * 1024 * 1024 })
@@ -344,17 +372,24 @@ function failedInstall(code = 'operation-error') {
   }
 }
 
+/** Reads of the bundle list. A later success still counts; a persistent failure does not. */
+export const BUNDLE_LIST_ATTEMPTS = 3
+
 /**
  * @param {Manager} manager
  * @returns {Promise<{ known: boolean, row: object | null }>}
  */
 async function installedCopy(manager) {
-  try {
-    const row = (await manager.listBundles()).find(item => item?.name === PACKAGE && item.installed)
-    return { known: true, row: row ?? null }
-  } catch {
-    return { known: false, row: null }
+  let failed = 0
+  while (failed < BUNDLE_LIST_ATTEMPTS) {
+    try {
+      const row = (await manager.listBundles()).find(item => item?.name === PACKAGE && item.installed)
+      return { known: true, row: row ?? null }
+    } catch {
+      failed += 1
+    }
   }
+  return { known: false, row: null }
 }
 /**
  * The previous package is back only when its version is the one installed now.
@@ -761,6 +796,14 @@ export class PluginUpdates {
         enabled: final.bundle.enabled === true,
         version: typeof final.bundle.version === 'string' ? final.bundle.version : undefined,
       }
+      operation.previousSource = previous.source
+      operation.previousEnabled = previous.enabled
+      if (previous.version) operation.previousVersion = previous.version
+      try {
+        await this.save(operation)
+      } catch {
+        // onRestoreRequest saves again before a restore install.
+      }
       const outcome = await retainInstall(
         installRelease(
           manager,
@@ -774,6 +817,8 @@ export class PluginUpdates {
           {
             onRestoreRequest: async (requestId, previousVersion) => {
               operation.restoreRequestId = requestId
+              operation.previousSource = previous.source
+              operation.previousEnabled = previous.enabled
               if (typeof previousVersion === 'string' && previousVersion !== '')
                 operation.previousVersion = previousVersion
               try {
@@ -864,7 +909,7 @@ export class PluginUpdates {
           : { known: true, row: bundle?.installed ? bundle : null }
       operation.restore = classifyRestore(restoreResult, { version: operation.previousVersion }, listed)
     }
-    const installed = bundle?.version
+    let installed = bundle?.version
     if (operation.result) operation.status = resultState(operation.result, operation.version, this.version, bundle)
     if (
       ['installing', 'restart-required', 'unknown', 'applied'].includes(operation.status) &&
@@ -878,7 +923,61 @@ export class PluginUpdates {
     settleRemoval(operation, this.version)
     if (operation.status === 'applied' && (operation.reason === 'reinstall' || operation.reason === 'restore-pending'))
       delete operation.reason
+    if (!listFailed && bundle?.installed !== true && operation.status === 'unknown') {
+      const restoredVersion = await this.restoreMissing(operation)
+      if (typeof restoredVersion === 'string') installed = restoredVersion
+    }
     return { ...this.base(), ...operation, installedVersion: installed }
+  }
+  /**
+   * The package is confirmed absent and the journal is still `unknown`.
+   * Install the source saved before removal. A list that is still failing is
+   * not absence, so this is not called then. `restored` still requires the
+   * listed version to match the saved one.
+   * @param {object} operation
+   * @returns {Promise<string | undefined>}
+   */
+  async restoreMissing(operation) {
+    if (this.closed) return undefined
+    const source = operation.previousSource
+    const version = operation.previousVersion
+    if (typeof source !== 'string' || source === '' || typeof version !== 'string' || version === '') return undefined
+    const manager = this.manager()
+    if (!manager || typeof manager.installBundle !== 'function' || typeof manager.listBundles !== 'function')
+      return undefined
+    const restore = await reinstallPrevious(
+      manager,
+      { source, enabled: operation.previousEnabled === true, version },
+      {
+        onRestoreRequest: async (requestId, previousVersion) => {
+          operation.restoreRequestId = requestId
+          if (typeof previousVersion === 'string' && previousVersion !== '') operation.previousVersion = previousVersion
+          try {
+            await this.save(operation)
+          } catch {
+            // The id remains on the operation for the journal write below.
+          }
+        },
+      },
+    )
+    if (!restore) return undefined
+    operation.restore = restore.state
+    operation.restoreRequestId = restore.requestId
+    settleRemoval(operation, this.version)
+    if (operation.status === 'applied' && (operation.reason === 'reinstall' || operation.reason === 'restore-pending'))
+      delete operation.reason
+    let listed
+    try {
+      listed = (await manager.listBundles()).find(item => item?.name === PACKAGE && item.installed)
+    } catch {
+      listed = undefined
+    }
+    try {
+      await this.save(operation)
+    } catch {
+      // The returned view still reports this attempt. The next reconcile reads the disk copy.
+    }
+    return typeof listed?.version === 'string' ? listed.version : undefined
   }
   dispose() {
     this.closed = true

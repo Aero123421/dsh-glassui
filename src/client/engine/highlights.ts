@@ -7,27 +7,26 @@
  * elements and never their subtrees.
  *
  * The viewport rectangle is read once and reused for later moves. Scroll,
- * resize, a layout mutation, a size change, a font or image load, or a
+ * resize, a text or attribute change, a size change, a font or image load, or a
  * CSS/Web animation on the surface (or an ancestor) discards it, so the light
- * stays on the pointer.
+ * stays on the pointer. The first size observation is kept only when it still
+ * matches the box measured for that paint.
  */
 import { ATTR_FLAT, ATTR_HIGHLIGHTS, ATTR_PAINT, ATTR_SURFACE, VAR_POINTER_X, VAR_POINTER_Y } from '../../shared/dom.ts'
 
 /** Surfaces that paint the highlight layer. */
 const LIT_SELECTOR = `[${ATTR_SURFACE}][${ATTR_PAINT}]:not([${ATTR_FLAT}]):not([${ATTR_SURFACE}="backdrop"])`
 
-/**
- * Attributes that can move a surface. Other attributes, including our own
- * pointer variables' neighbors that are not in this list, do not.
- * `style` stays so a margin or position change still drops the cache.
- */
-const LAYOUT_ATTRIBUTES = ['class', 'style', 'hidden', 'open', 'width', 'height']
-
 interface Box {
   left: number
   top: number
   clientLeft: number
   clientTop: number
+}
+
+interface Size {
+  width: number
+  height: number
 }
 
 /** Publishes the pointer position on the surfaces under it while enabled. */
@@ -43,8 +42,10 @@ export class Highlights {
   private readonly boxes = new Map<HTMLElement, Box>()
   /** Style text without the pointer variables, captured when the box was measured. */
   private readonly styleBaseline = new Map<HTMLElement, string>()
-  /** Last content-box size reported for an observed element. The first report only records it. */
+  /** Last content-box size reported for an observed element. */
   private readonly observedSize = new Map<Element, string>()
+  /** Border box measured when the highlight position was cached. */
+  private readonly measuredBorder = new Map<Element, Size>()
   private readonly resizeTargets = new Set<Element>()
   private readonly observer: MutationObserver | undefined
   private resize: ResizeObserver | undefined
@@ -85,14 +86,24 @@ export class Highlights {
     }
   }
 
-  /** A size change moves the light. The first observation only records the current size. */
+  /**
+   * A size change moves the light. The first observation is not a baseline by
+   * itself: if it disagrees with the box measured at paint time, the cache is
+   * dropped. Later observations drop it when the content box changes.
+   */
   private readonly resized = (entries: ResizeObserverEntry[]): void => {
     let changed = false
     for (const entry of entries) {
       const size = `${entry.contentRect.width}x${entry.contentRect.height}`
       const previous = this.observedSize.get(entry.target)
       this.observedSize.set(entry.target, size)
-      if (previous !== undefined && previous !== size) changed = true
+      if (previous !== undefined) {
+        if (previous !== size) changed = true
+        continue
+      }
+      const measured = this.measuredBorder.get(entry.target)
+      const reported = borderBox(entry)
+      if (measured !== undefined && reported !== undefined && !sameSize(measured, reported)) changed = true
     }
     if (changed) this.geometryStale = true
   }
@@ -123,6 +134,7 @@ export class Highlights {
     if (this.shouldMeasure(next)) {
       this.geometryStale = false
       this.boxes.clear()
+      this.measuredBorder.clear()
       this.styleBaseline.clear()
       for (const element of next) {
         const rect = element.getBoundingClientRect()
@@ -132,6 +144,7 @@ export class Highlights {
           clientLeft: element.clientLeft,
           clientTop: element.clientTop,
         })
+        this.measuredBorder.set(element, { width: rect.width, height: rect.height })
         this.styleBaseline.set(element, withoutPointer(element.getAttribute('style') ?? ''))
       }
     }
@@ -226,15 +239,18 @@ export class Highlights {
       this.viewport?.addEventListener('resize', this.markStale, { passive: true })
       this.doc.addEventListener('load', this.resourceSettled, true)
       this.doc.addEventListener('error', this.resourceSettled, true)
-      this.fonts = this.doc.fonts
-      this.fonts.addEventListener('loadingdone', this.markStale)
-      this.fonts.addEventListener('loadingerror', this.markStale)
+      const fonts = fontSet(this.doc)
+      if (fonts) {
+        this.fonts = fonts
+        fonts.addEventListener('loadingdone', this.markStale)
+        fonts.addEventListener('loadingerror', this.markStale)
+      }
       this.syncResizeWatch([])
       this.observer?.observe(this.doc, {
         subtree: true,
         childList: true,
+        characterData: true,
         attributes: true,
-        attributeFilter: LAYOUT_ATTRIBUTES,
       })
       this.geometryStale = true
       return
@@ -255,6 +271,7 @@ export class Highlights {
     this.resize?.disconnect()
     this.resizeTargets.clear()
     this.observedSize.clear()
+    this.measuredBorder.clear()
     this.styleBaseline.clear()
     if (this.frame !== 0) view?.cancelAnimationFrame(this.frame)
     this.frame = 0
@@ -275,4 +292,26 @@ export class Highlights {
 /** Style text with the pointer variables removed, so only a real layout change remains. */
 function withoutPointer(style: string): string {
   return style.replace(/--glassui-l[xy]\s*:\s*[^;]*;?/g, '').replace(/\s/g, '')
+}
+
+/**
+ * `Document.fonts` is required by the DOM types and absent on some documents.
+ * Highlight tracking still runs without the font events.
+ */
+function fontSet(doc: Document): FontFaceSet | undefined {
+  const fonts = (doc as unknown as { fonts?: FontFaceSet | null }).fonts
+  if (!fonts) return undefined
+  return fonts
+}
+
+/** Border box from a resize entry, in CSS pixels. Missing on older observers. */
+function borderBox(entry: ResizeObserverEntry): Size | undefined {
+  const box = entry.borderBoxSize[0]
+  if (box === undefined) return { width: entry.contentRect.width, height: entry.contentRect.height }
+  if (!Number.isFinite(box.inlineSize) || !Number.isFinite(box.blockSize)) return undefined
+  return { width: box.inlineSize, height: box.blockSize }
+}
+
+function sameSize(measured: Size, reported: Size): boolean {
+  return Math.abs(measured.width - reported.width) < 1 && Math.abs(measured.height - reported.height) < 1
 }

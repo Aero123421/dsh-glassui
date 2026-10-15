@@ -2291,36 +2291,45 @@ function peerRangeDecision(range, runtime) {
   const current = import_semver.default.parse(runtime, { includePrerelease: true });
   if (!current || typeof range !== "string" || range.trim() === "") return "unknown";
   const text2 = range.trim();
-  if (!import_semver.default.validRange(text2) || !import_semver.default.satisfies(runtime, text2, { includePrerelease: true }))
-    return import_semver.default.validRange(text2) ? "incompatible" : "unknown";
+  if (!import_semver.default.validRange(text2)) return "unknown";
+  if (!import_semver.default.satisfies(runtime, text2, { includePrerelease: true })) return "incompatible";
+  return peerRangeInCurrentSeries(text2, current) ? "ok" : "unknown";
+}
+var DSH_02_FLOOR = "0.2.0-rc.2";
+function seriesFloor(current) {
+  if (current.major === 0 && current.minor === 2) return DSH_02_FLOOR;
+  if (current.major === 0) return `${current.major}.${current.minor}.0-0`;
+  return `${current.major}.0.0-0`;
+}
+function seriesNext(current) {
+  return current.major === 0 ? `${current.major}.${current.minor + 1}.0-0` : `${current.major + 1}.0.0-0`;
+}
+function boundedComparator(item, direction) {
+  const exact = (item.operator === "" || item.operator === "=") && typeof item.semver?.version === "string";
+  if (exact) return true;
+  if (direction === "upper") return item.operator === "<" || item.operator === "<=";
+  return item.operator === ">" || item.operator === ">=";
+}
+function peerRangeInCurrentSeries(range, current) {
   let parsed;
   try {
-    parsed = new import_semver.default.Range(text2, { includePrerelease: true });
+    parsed = new import_semver.default.Range(range, { includePrerelease: true });
   } catch {
-    return "unknown";
+    return false;
   }
-  const ceiling = import_semver.default.parse(
-    current.major === 0 ? `${current.major}.${current.minor + 1}.0-0` : `${current.major + 1}.0.0-0`,
-    { includePrerelease: true }
-  );
-  if (!ceiling || !rangeStaysWithin(parsed, ceiling)) return "unknown";
-  return "ok";
-}
-function rangeStaysWithin(parsed, ceiling) {
   if (parsed.set.length === 0) return false;
-  for (const set of parsed.set) {
-    if (!set.some((comparator) => comparatorCaps(comparator, ceiling))) return false;
+  const shaped = parsed.set.every(
+    (comparators) => comparators.some((item) => boundedComparator(item, "lower")) && comparators.some((item) => boundedComparator(item, "upper"))
+  );
+  if (!shaped) return false;
+  const options = { includePrerelease: true };
+  try {
+    if (import_semver.default.intersects(range, `<${seriesFloor(current)}`, options)) return false;
+    if (import_semver.default.intersects(range, `>=${seriesNext(current)}`, options)) return false;
+  } catch {
+    return false;
   }
   return true;
-}
-function comparatorCaps(comparator, ceiling) {
-  const bound = comparator?.semver;
-  if (!bound || typeof bound.compare !== "function") return false;
-  const order = bound.compare(ceiling);
-  if (comparator.operator === "<") return order <= 0;
-  if (comparator.operator === "<=") return order < 0;
-  if (comparator.operator === "" || comparator.operator === "=") return order < 0;
-  return false;
 }
 function packageManifest(bytes) {
   const tar = gunzipSync(bytes, { maxOutputLength: 128 * 1024 * 1024 });
@@ -2397,13 +2406,18 @@ function failedInstall(code = "operation-error") {
     error: { code }
   };
 }
+var BUNDLE_LIST_ATTEMPTS = 3;
 async function installedCopy(manager) {
-  try {
-    const row = (await manager.listBundles()).find((item) => item?.name === PACKAGE && item.installed);
-    return { known: true, row: row ?? null };
-  } catch {
-    return { known: false, row: null };
+  let failed = 0;
+  while (failed < BUNDLE_LIST_ATTEMPTS) {
+    try {
+      const row = (await manager.listBundles()).find((item) => item?.name === PACKAGE && item.installed);
+      return { known: true, row: row ?? null };
+    } catch {
+      failed += 1;
+    }
   }
+  return { known: false, row: null };
 }
 function versionRestored(previous, row) {
   return typeof previous?.version === "string" && previous.version !== "" && row?.installed === true && row.version === previous.version && !row.error && !row.readOnlyReason;
@@ -2701,6 +2715,13 @@ var PluginUpdates = class {
         enabled: final.bundle.enabled === true,
         version: typeof final.bundle.version === "string" ? final.bundle.version : void 0
       };
+      operation.previousSource = previous.source;
+      operation.previousEnabled = previous.enabled;
+      if (previous.version) operation.previousVersion = previous.version;
+      try {
+        await this.save(operation);
+      } catch {
+      }
       const outcome = await retainInstall(
         installRelease(
           manager,
@@ -2714,6 +2735,8 @@ var PluginUpdates = class {
           {
             onRestoreRequest: async (requestId, previousVersion) => {
               operation.restoreRequestId = requestId;
+              operation.previousSource = previous.source;
+              operation.previousEnabled = previous.enabled;
               if (typeof previousVersion === "string" && previousVersion !== "")
                 operation.previousVersion = previousVersion;
               try {
@@ -2793,7 +2816,7 @@ var PluginUpdates = class {
       const listed = bundle === void 0 && !this.manager() ? { known: false, row: null } : { known: true, row: bundle?.installed ? bundle : null };
       operation.restore = classifyRestore(restoreResult, { version: operation.previousVersion }, listed);
     }
-    const installed = bundle?.version;
+    let installed = bundle?.version;
     if (operation.result) operation.status = resultState(operation.result, operation.version, this.version, bundle);
     if (["installing", "restart-required", "unknown", "applied"].includes(operation.status) && this.version === operation.version) {
       operation.status = bundle?.installed && !bundle.error && !bundle.readOnlyReason && installed === operation.version ? "applied" : "unknown";
@@ -2801,7 +2824,59 @@ var PluginUpdates = class {
     settleRemoval(operation, this.version);
     if (operation.status === "applied" && (operation.reason === "reinstall" || operation.reason === "restore-pending"))
       delete operation.reason;
+    if (!listFailed && bundle?.installed !== true && operation.status === "unknown") {
+      const restoredVersion = await this.restoreMissing(operation);
+      if (typeof restoredVersion === "string") installed = restoredVersion;
+    }
     return { ...this.base(), ...operation, installedVersion: installed };
+  }
+  /**
+   * The package is confirmed absent and the journal is still `unknown`.
+   * Install the source saved before removal. A list that is still failing is
+   * not absence, so this is not called then. `restored` still requires the
+   * listed version to match the saved one.
+   * @param {object} operation
+   * @returns {Promise<string | undefined>}
+   */
+  async restoreMissing(operation) {
+    if (this.closed) return void 0;
+    const source = operation.previousSource;
+    const version = operation.previousVersion;
+    if (typeof source !== "string" || source === "" || typeof version !== "string" || version === "") return void 0;
+    const manager = this.manager();
+    if (!manager || typeof manager.installBundle !== "function" || typeof manager.listBundles !== "function")
+      return void 0;
+    const restore = await reinstallPrevious(
+      manager,
+      { source, enabled: operation.previousEnabled === true, version },
+      {
+        onRestoreRequest: async (requestId, previousVersion) => {
+          operation.restoreRequestId = requestId;
+          if (typeof previousVersion === "string" && previousVersion !== "") operation.previousVersion = previousVersion;
+          try {
+            await this.save(operation);
+          } catch {
+          }
+        }
+      }
+    );
+    if (!restore) return void 0;
+    operation.restore = restore.state;
+    operation.restoreRequestId = restore.requestId;
+    settleRemoval(operation, this.version);
+    if (operation.status === "applied" && (operation.reason === "reinstall" || operation.reason === "restore-pending"))
+      delete operation.reason;
+    let listed;
+    try {
+      listed = (await manager.listBundles()).find((item) => item?.name === PACKAGE && item.installed);
+    } catch {
+      listed = void 0;
+    }
+    try {
+      await this.save(operation);
+    } catch {
+    }
+    return typeof listed?.version === "string" ? listed.version : void 0;
   }
   dispose() {
     this.closed = true;
