@@ -7,13 +7,21 @@
  * elements and never their subtrees.
  *
  * The viewport rectangle is read once and reused for later moves. Scroll,
- * resize, a layout mutation, or a CSS/Web animation on the surface (or an
- * ancestor) discards it, so the light stays on the pointer.
+ * resize, a layout mutation, a size change, a font or image load, or a
+ * CSS/Web animation on the surface (or an ancestor) discards it, so the light
+ * stays on the pointer.
  */
 import { ATTR_FLAT, ATTR_HIGHLIGHTS, ATTR_PAINT, ATTR_SURFACE, VAR_POINTER_X, VAR_POINTER_Y } from '../../shared/dom.ts'
 
 /** Surfaces that paint the highlight layer. */
 const LIT_SELECTOR = `[${ATTR_SURFACE}][${ATTR_PAINT}]:not([${ATTR_FLAT}]):not([${ATTR_SURFACE}="backdrop"])`
+
+/**
+ * Attributes that can move a surface. Other attributes, including our own
+ * pointer variables' neighbors that are not in this list, do not.
+ * `style` stays so a margin or position change still drops the cache.
+ */
+const LAYOUT_ATTRIBUTES = ['class', 'style', 'hidden', 'open', 'width', 'height']
 
 interface Box {
   left: number
@@ -33,13 +41,22 @@ export class Highlights {
   private geometryStale = true
   private readonly lit = new Set<HTMLElement>()
   private readonly boxes = new Map<HTMLElement, Box>()
+  /** Style text without the pointer variables, captured when the box was measured. */
+  private readonly styleBaseline = new Map<HTMLElement, string>()
+  /** Last content-box size reported for an observed element. The first report only records it. */
+  private readonly observedSize = new Map<Element, string>()
+  private readonly resizeTargets = new Set<Element>()
   private readonly observer: MutationObserver | undefined
+  private resize: ResizeObserver | undefined
+  private fonts: FontFaceSet | undefined
   private viewport: VisualViewport | undefined
 
   constructor(doc: Document) {
     this.doc = doc
     const View = doc.defaultView?.MutationObserver
     this.observer = View ? new View(this.mutated) : undefined
+    const Resize = doc.defaultView?.ResizeObserver
+    this.resize = Resize ? new Resize(this.resized) : undefined
   }
 
   private readonly move = (event: PointerEvent): void => {
@@ -68,6 +85,30 @@ export class Highlights {
     }
   }
 
+  /** A size change moves the light. The first observation only records the current size. */
+  private readonly resized = (entries: ResizeObserverEntry[]): void => {
+    let changed = false
+    for (const entry of entries) {
+      const size = `${entry.contentRect.width}x${entry.contentRect.height}`
+      const previous = this.observedSize.get(entry.target)
+      this.observedSize.set(entry.target, size)
+      if (previous !== undefined && previous !== size) changed = true
+    }
+    if (changed) this.geometryStale = true
+  }
+
+  /** Image, video, and stylesheet loads reflow without a DOM mutation. */
+  private readonly resourceSettled = (event: Event): void => {
+    const target = event.target
+    if (
+      target === this.doc ||
+      target instanceof HTMLImageElement ||
+      target instanceof HTMLVideoElement ||
+      target instanceof HTMLLinkElement
+    )
+      this.geometryStale = true
+  }
+
   private schedule(): void {
     const view = this.doc.defaultView
     if (this.frame === 0 && view) this.frame = view.requestAnimationFrame(this.paint)
@@ -82,6 +123,7 @@ export class Highlights {
     if (this.shouldMeasure(next)) {
       this.geometryStale = false
       this.boxes.clear()
+      this.styleBaseline.clear()
       for (const element of next) {
         const rect = element.getBoundingClientRect()
         this.boxes.set(element, {
@@ -90,6 +132,7 @@ export class Highlights {
           clientLeft: element.clientLeft,
           clientTop: element.clientTop,
         })
+        this.styleBaseline.set(element, withoutPointer(element.getAttribute('style') ?? ''))
       }
     }
     for (const element of this.lit) if (!next.has(element)) this.clear(element)
@@ -103,6 +146,7 @@ export class Highlights {
     }
     this.lit.clear()
     for (const element of next) this.lit.add(element)
+    this.syncResizeWatch(next)
   }
 
   /** True when the cached viewport rectangles would place the light somewhere else. */
@@ -124,12 +168,40 @@ export class Highlights {
 
   /**
    * Our own pointer writes change the style attribute. They do not move the box,
-   * so they must not force the next move to read layout again.
+   * so they must not force the next move to read layout again. The comparison
+   * uses the style captured at the last measurement, because the observer does
+   * not request attribute old values.
    */
   private pointerStyleOnly(record: MutationRecord): boolean {
     if (record.type !== 'attributes' || record.attributeName !== 'style') return false
     if (!(record.target instanceof HTMLElement) || !this.lit.has(record.target)) return false
-    return withoutPointer(record.oldValue ?? '') === withoutPointer(record.target.getAttribute('style') ?? '')
+    const baseline = this.styleBaseline.get(record.target)
+    if (baseline === undefined) return false
+    return withoutPointer(record.target.getAttribute('style') ?? '') === baseline
+  }
+
+  /** Watch the viewport roots and the surfaces currently under the pointer. */
+  private syncResizeWatch(elements: Iterable<HTMLElement>): void {
+    const observer = this.resize
+    if (!observer) return
+    const next = new Set<Element>()
+    next.add(this.doc.documentElement)
+    next.add(this.doc.body)
+    for (const element of elements) {
+      for (let node: Element | null = element; node; node = node.parentElement) next.add(node)
+    }
+    for (const element of [...this.resizeTargets]) {
+      if (!next.has(element)) {
+        observer.unobserve(element)
+        this.observedSize.delete(element)
+        this.resizeTargets.delete(element)
+      }
+    }
+    for (const element of next) {
+      if (this.resizeTargets.has(element)) continue
+      this.resizeTargets.add(element)
+      observer.observe(element)
+    }
   }
 
   private clear(element: HTMLElement): void {
@@ -152,12 +224,17 @@ export class Highlights {
       this.viewport = view?.visualViewport ?? undefined
       this.viewport?.addEventListener('scroll', this.markStale, { passive: true })
       this.viewport?.addEventListener('resize', this.markStale, { passive: true })
+      this.doc.addEventListener('load', this.resourceSettled, true)
+      this.doc.addEventListener('error', this.resourceSettled, true)
+      this.fonts = this.doc.fonts
+      this.fonts.addEventListener('loadingdone', this.markStale)
+      this.fonts.addEventListener('loadingerror', this.markStale)
+      this.syncResizeWatch([])
       this.observer?.observe(this.doc, {
         subtree: true,
         childList: true,
-        characterData: true,
         attributes: true,
-        attributeOldValue: true,
+        attributeFilter: LAYOUT_ATTRIBUTES,
       })
       this.geometryStale = true
       return
@@ -166,10 +243,19 @@ export class Highlights {
     view?.removeEventListener('resize', this.markStale)
     this.doc.removeEventListener('pointerout', this.out)
     this.doc.removeEventListener('scroll', this.markStale, { capture: true })
+    this.doc.removeEventListener('load', this.resourceSettled, true)
+    this.doc.removeEventListener('error', this.resourceSettled, true)
+    this.fonts?.removeEventListener('loadingdone', this.markStale)
+    this.fonts?.removeEventListener('loadingerror', this.markStale)
+    this.fonts = undefined
     this.viewport?.removeEventListener('scroll', this.markStale)
     this.viewport?.removeEventListener('resize', this.markStale)
     this.viewport = undefined
     this.observer?.disconnect()
+    this.resize?.disconnect()
+    this.resizeTargets.clear()
+    this.observedSize.clear()
+    this.styleBaseline.clear()
     if (this.frame !== 0) view?.cancelAnimationFrame(this.frame)
     this.frame = 0
     this.target = null

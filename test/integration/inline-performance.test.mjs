@@ -325,4 +325,102 @@ describe('pointer highlight ordering', () => {
       await f.close()
     }
   })
+
+  it('drops the position cache for font, image, and text reflow, and ignores unrelated attributes', async () => {
+    const f = await openFixture({ config: { refraction: false } })
+    try {
+      await f.page.evaluate(() => {
+        const host = document.createElement('div')
+        host.id = 'flow-host'
+        host.style.cssText = 'position:relative;width:80px'
+        const above = document.createElement('div')
+        above.id = 'flow-above'
+        above.textContent = 'a'
+        const pane = document.createElement('div')
+        pane.id = 'flow-pane'
+        pane.className = 'composer'
+        pane.style.cssText = 'position:relative;left:auto;right:auto;bottom:auto;width:70px;height:36px'
+        host.append(above, pane)
+        document.getElementById('dialog').append(host)
+      })
+      await settle(f.page, 12)
+      const log = await f.page.evaluate(async () => {
+        const entries = []
+        const read = Element.prototype.getBoundingClientRect
+        Element.prototype.getBoundingClientRect = function (...args) {
+          if (this.id === 'flow-pane') entries.push('read')
+          return read.apply(this, args)
+        }
+        const pane = document.getElementById('flow-pane')
+        const move = () => {
+          pane.dispatchEvent(
+            new PointerEvent('pointermove', { bubbles: true, pointerType: 'mouse', clientX: 450, clientY: 140 }),
+          )
+        }
+        const placed = () => {
+          const rect = read.call(pane)
+          return `${Math.round(140 - rect.top - pane.clientTop)}px`
+        }
+        try {
+          move()
+          await window.__fixture.frames(2)
+          entries.length = 0
+          pane.setAttribute('title', 'label')
+          move()
+          await window.__fixture.frames(2)
+          const titled = [...entries]
+          const titleY = pane.style.getPropertyValue('--glassui-ly')
+          entries.length = 0
+          const image = document.createElement('img')
+          document.body.append(image)
+          move()
+          await window.__fixture.frames(2)
+          entries.length = 0
+          image.dispatchEvent(new Event('load'))
+          move()
+          await window.__fixture.frames(2)
+          const loaded = [...entries]
+          entries.length = 0
+          move()
+          await window.__fixture.frames(2)
+          entries.length = 0
+          document.fonts.dispatchEvent(new Event('loadingdone'))
+          move()
+          await window.__fixture.frames(2)
+          const fonts = [...entries]
+          entries.length = 0
+          move()
+          await window.__fixture.frames(2)
+          entries.length = 0
+          const before = placed()
+          document.getElementById('flow-above').firstChild.data = 'word '.repeat(30)
+          await window.__fixture.frames(2)
+          move()
+          await window.__fixture.frames(2)
+          return {
+            titled,
+            titleY,
+            loaded,
+            fonts,
+            shifted: [...entries],
+            before,
+            after: pane.style.getPropertyValue('--glassui-ly'),
+            expected: placed(),
+          }
+        } finally {
+          Element.prototype.getBoundingClientRect = read
+        }
+      })
+      assert.deepEqual(log.titled, [])
+      assert.ok(log.titleY.endsWith('px'))
+      assert.ok(log.loaded.includes('read'), `image load should measure, got ${log.loaded.join(',')}`)
+      assert.ok(log.fonts.includes('read'), `font load should measure, got ${log.fonts.join(',')}`)
+      assert.ok(log.shifted.includes('read'), `text reflow should measure, got ${log.shifted.join(',')}`)
+      assert.notEqual(log.before, log.expected)
+      assert.equal(log.after, log.expected)
+      assert.deepEqual(f.errors, [])
+    } finally {
+      await f.close()
+    }
+  })
 })

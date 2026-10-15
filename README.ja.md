@@ -25,7 +25,7 @@
 
 ## インストール
 
-DSH `>=0.2.0-rc.2 <0.3.0-0` を対象とします。DSH はこの範囲の prerelease を含むため、0.2.1-alpha.3 とそれ以降の 0.2.x prerelease も対象で、0.3.0 の prerelease は対象外です。テスト済みは 0.2.0-rc.2、0.2.1-alpha.2、0.2.1-alpha.3 です。
+DSH `>=0.2.0-rc.2 <0.3.0-0` を対象とします。DSH はこの範囲の prerelease を含むため、0.2.1-alpha.3 とそれ以降の 0.2.x prerelease も対象で、0.3.0 の prerelease は対象外です。空の peer 範囲、`*` / `x` / `>=0`、実行中の系列を超える上限（0.2 系の `<99`、`^0`、`<0.3.0`）は互換性不明です。テスト済みは 0.2.0-rc.2、0.2.1-alpha.2、0.2.1-alpha.3 です。
 
 1. DSH Web の「Plugins → Add plugin」に `github:Aero123421/dsh-glassui#v0.2.2` を入力してインストールします。
 2. ターミナルからなら:

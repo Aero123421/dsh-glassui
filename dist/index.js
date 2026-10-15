@@ -2281,10 +2281,46 @@ function checkCompatibility(packageJson, candidate, runtime) {
   );
   if (!peers.length || peers.some(([, range]) => typeof range !== "string")) throw new Error("compatibility-unknown");
   for (const [, range] of peers) {
-    if (!import_semver.default.validRange(range)) throw new Error("compatibility-unknown");
-    if (!import_semver.default.satisfies(runtime, range, { includePrerelease: true })) throw new Error("incompatible");
+    const decision = peerRangeDecision(range, runtime);
+    if (decision === "unknown") throw new Error("compatibility-unknown");
+    if (decision === "incompatible") throw new Error("incompatible");
   }
   return runtime;
+}
+function peerRangeDecision(range, runtime) {
+  const current = import_semver.default.parse(runtime, { includePrerelease: true });
+  if (!current || typeof range !== "string" || range.trim() === "") return "unknown";
+  const text2 = range.trim();
+  if (!import_semver.default.validRange(text2) || !import_semver.default.satisfies(runtime, text2, { includePrerelease: true }))
+    return import_semver.default.validRange(text2) ? "incompatible" : "unknown";
+  let parsed;
+  try {
+    parsed = new import_semver.default.Range(text2, { includePrerelease: true });
+  } catch {
+    return "unknown";
+  }
+  const ceiling = import_semver.default.parse(
+    current.major === 0 ? `${current.major}.${current.minor + 1}.0-0` : `${current.major + 1}.0.0-0`,
+    { includePrerelease: true }
+  );
+  if (!ceiling || !rangeStaysWithin(parsed, ceiling)) return "unknown";
+  return "ok";
+}
+function rangeStaysWithin(parsed, ceiling) {
+  if (parsed.set.length === 0) return false;
+  for (const set of parsed.set) {
+    if (!set.some((comparator) => comparatorCaps(comparator, ceiling))) return false;
+  }
+  return true;
+}
+function comparatorCaps(comparator, ceiling) {
+  const bound = comparator?.semver;
+  if (!bound || typeof bound.compare !== "function") return false;
+  const order = bound.compare(ceiling);
+  if (comparator.operator === "<") return order <= 0;
+  if (comparator.operator === "<=") return order < 0;
+  if (comparator.operator === "" || comparator.operator === "=") return order < 0;
+  return false;
 }
 function packageManifest(bytes) {
   const tar = gunzipSync(bytes, { maxOutputLength: 128 * 1024 * 1024 });
@@ -2361,40 +2397,70 @@ function failedInstall(code = "operation-error") {
     error: { code }
   };
 }
-async function restoreIfMissing(manager, installed, previous) {
-  const source = previous?.source;
-  if (typeof source !== "string" || source === "") return void 0;
-  const outcome = installed?.application;
-  if (outcome !== "failed" && outcome !== "cancelled" || installed?.error?.code === "already-installed")
-    return void 0;
-  let present;
+async function installedCopy(manager) {
   try {
-    present = (await manager.listBundles()).some((row) => row?.name === PACKAGE && row.installed);
+    const row = (await manager.listBundles()).find((item) => item?.name === PACKAGE && item.installed);
+    return { known: true, row: row ?? null };
   } catch {
-    return void 0;
-  }
-  if (present) return void 0;
-  try {
-    const restored = await manager.installBundle(source, {
-      enabled: previous.enabled === true,
-      requestId: updateRequestId()
-    });
-    const accepted = restored && !restored.error && (restored.application === "applied" || restored.application === "restart-required");
-    if (!accepted) return "failed";
-    try {
-      const back = (await manager.listBundles()).some((row) => row?.name === PACKAGE && row.installed);
-      return back ? "ok" : "failed";
-    } catch {
-      return "ok";
-    }
-  } catch {
-    return "failed";
+    return { known: false, row: null };
   }
 }
-function settleRemoval(operation) {
+function versionRestored(previous, row) {
+  return typeof previous?.version === "string" && previous.version !== "" && row?.installed === true && row.version === previous.version && !row.error && !row.readOnlyReason;
+}
+function classifyRestore(restored, previous, listed) {
+  if (restored?.application === "cancelled") return listed.known && !listed.row ? "cancelled-absent" : "cancelled";
+  if (!listed.known) return "unconfirmed";
+  const back = versionRestored(previous, listed.row);
+  if (restored?.application === "restart-required") return back ? "pending" : "failed";
+  return back ? "ok" : "failed";
+}
+async function reinstallPrevious(manager, previous, hooks) {
+  const source = previous?.source;
+  if (typeof source !== "string" || source === "") return void 0;
+  const requestId = updateRequestId();
+  if (hooks?.onRestoreRequest) await hooks.onRestoreRequest(requestId, previous.version);
+  let restored;
+  try {
+    restored = await manager.installBundle(source, {
+      enabled: previous.enabled === true,
+      requestId
+    });
+  } catch {
+    restored = failedInstall();
+  }
+  const listed = await installedCopy(manager);
+  return { state: classifyRestore(restored, previous, listed), requestId };
+}
+async function restoreIfMissing(manager, installed, previous, hooks) {
+  const source = previous?.source;
+  if (typeof source !== "string" || source === "") return void 0;
+  if (installed?.error?.code === "already-installed") return void 0;
+  const outcome = installed?.application;
+  if (outcome !== "failed" && outcome !== "cancelled" && outcome !== "overridden") return void 0;
+  const listed = await installedCopy(manager);
+  if (!listed.known || listed.row) return void 0;
+  return reinstallPrevious(manager, previous, hooks);
+}
+function settleRemoval(operation, runtimeVersion) {
   if (operation.restore === "ok") {
     operation.status = "failed";
     operation.reason = "restored";
+    return;
+  }
+  if (operation.restore === "pending") {
+    if (runtimeVersion && runtimeVersion === operation.version) {
+      if (operation.reason === "restore-pending") delete operation.reason;
+      return;
+    }
+    operation.status = "restart-required";
+    operation.reason = "restore-pending";
+    return;
+  }
+  if (operation.restore === "cancelled" || operation.restore === "cancelled-absent") {
+    operation.status = "cancelled";
+    if (operation.restore === "cancelled-absent") operation.reason = "restore-failed";
+    else delete operation.reason;
     return;
   }
   if (operation.restore === "failed") {
@@ -2402,29 +2468,57 @@ function settleRemoval(operation) {
     operation.reason = "restore-failed";
     return;
   }
-  if (operation.reinstall && operation.status === "failed") {
+  if (operation.restore === "unconfirmed" || operation.reinstall && operation.status === "failed") {
     operation.status = "unknown";
     operation.reason = "reinstall";
   }
 }
-async function installRelease(manager, spec, options, previous) {
+async function installRelease(manager, spec, options, previous, hooks) {
   const installed = await manager.installBundle(spec, options);
   if (installed?.error?.code !== "already-installed" || typeof manager.removeBundle !== "function") {
     return { result: installed, removed: false };
   }
-  const removed = await manager.removeBundle(PACKAGE);
-  if (removed?.error?.code === "stop-profile") {
-    return { result: await manager.installBundle(spec, options), removed: false };
+  let removed;
+  try {
+    removed = await manager.removeBundle(PACKAGE);
+  } catch {
+    removed = failedInstall();
   }
-  if (!removalAccepted(removed)) return { result: removed ?? installed, removed: false };
+  if (removed?.error?.code === "stop-profile") {
+    const listed = await installedCopy(manager);
+    if (listed.known && !listed.row) return removalNeedsRestore(manager, removed, previous, hooks);
+    try {
+      return { result: await manager.installBundle(spec, options), removed: false };
+    } catch {
+      return { result: failedInstall(), removed: false };
+    }
+  }
+  if (!removalAccepted(removed)) {
+    const listed = await installedCopy(manager);
+    if (!listed.known) return { result: removed ?? installed, removed: true, restore: "unconfirmed" };
+    if (!listed.row) return removalNeedsRestore(manager, removed ?? installed, previous, hooks);
+    return { result: removed ?? installed, removed: false };
+  }
   let result;
   try {
     result = await manager.installBundle(spec, options);
   } catch {
     result = failedInstall();
   }
-  const restore = await restoreIfMissing(manager, result, previous);
-  return { result, removed: true, ...restore ? { restore } : {} };
+  const restore = await restoreIfMissing(manager, result, previous, hooks);
+  return {
+    result,
+    removed: true,
+    ...restore ? { restore: restore.state, restoreRequestId: restore.requestId } : {}
+  };
+}
+async function removalNeedsRestore(manager, result, previous, hooks) {
+  const restore = await reinstallPrevious(manager, previous, hooks);
+  return {
+    result,
+    removed: true,
+    ...restore ? { restore: restore.state, restoreRequestId: restore.requestId } : {}
+  };
 }
 var PluginUpdates = class {
   constructor({ manager, profileDir, runtimeVersion, isBusy = () => false, fetcher = fetch, version }) {
@@ -2602,7 +2696,11 @@ var PluginUpdates = class {
       if (compareVersions(candidate.version, final.bundle.version) <= 0) throw new Error("stale-candidate");
       managerInvoked = true;
       const manager = final.manager;
-      const previous = { source: final.bundle.source, enabled: final.bundle.enabled === true };
+      const previous = {
+        source: final.bundle.source,
+        enabled: final.bundle.enabled === true,
+        version: typeof final.bundle.version === "string" ? final.bundle.version : void 0
+      };
       const outcome = await retainInstall(
         installRelease(
           manager,
@@ -2612,11 +2710,24 @@ var PluginUpdates = class {
             requestId: operation.requestId,
             saveExact: true
           },
-          previous
+          previous,
+          {
+            onRestoreRequest: async (requestId, previousVersion) => {
+              operation.restoreRequestId = requestId;
+              if (typeof previousVersion === "string" && previousVersion !== "")
+                operation.previousVersion = previousVersion;
+              try {
+                await this.save(operation);
+              } catch {
+              }
+            }
+          }
         )
       );
       operation.result = safeResult(outcome.result);
       if (outcome.restore) operation.restore = outcome.restore;
+      if (outcome.restoreRequestId) operation.restoreRequestId = outcome.restoreRequestId;
+      if (previous.version) operation.previousVersion = previous.version;
       let installed;
       try {
         installed = (await manager.listBundles()).find((item) => item.name === PACKAGE);
@@ -2625,7 +2736,7 @@ var PluginUpdates = class {
       }
       operation.status = resultState(outcome.result, operation.version, this.version, installed);
       if (outcome.removed && !outcome.restore && operation.status === "failed") operation.reinstall = true;
-      settleRemoval(operation);
+      settleRemoval(operation, this.version);
     } catch (error) {
       operation.status = managerInvoked ? "unknown" : "failed";
       operation.reason = reasonOf(error);
@@ -2659,14 +2770,37 @@ var PluginUpdates = class {
         operation.result = safeResult(result);
       } else operation.status = "unknown";
     }
-    const bundle = (await this.manager()?.listBundles())?.find((item) => item.name === PACKAGE);
+    let restoreResult;
+    if (typeof operation.restoreRequestId === "string" && UUID.test(operation.restoreRequestId) && operation.restore !== "ok") {
+      try {
+        const manager = this.manager();
+        restoreResult = manager ? await manager.waitForInstall(operation.restoreRequestId) : void 0;
+      } catch {
+        restoreResult = void 0;
+      }
+    }
+    let bundle;
+    let listFailed = false;
+    try {
+      bundle = (await this.manager()?.listBundles())?.find((item) => item.name === PACKAGE);
+    } catch (error) {
+      if (!restoreResult) throw error;
+      listFailed = true;
+      operation.restore = restoreResult.application === "cancelled" ? "cancelled" : "unconfirmed";
+      bundle = void 0;
+    }
+    if (restoreResult && !listFailed) {
+      const listed = bundle === void 0 && !this.manager() ? { known: false, row: null } : { known: true, row: bundle?.installed ? bundle : null };
+      operation.restore = classifyRestore(restoreResult, { version: operation.previousVersion }, listed);
+    }
     const installed = bundle?.version;
     if (operation.result) operation.status = resultState(operation.result, operation.version, this.version, bundle);
     if (["installing", "restart-required", "unknown", "applied"].includes(operation.status) && this.version === operation.version) {
       operation.status = bundle?.installed && !bundle.error && !bundle.readOnlyReason && installed === operation.version ? "applied" : "unknown";
     }
-    settleRemoval(operation);
-    if (operation.status === "applied" && operation.reason === "reinstall") delete operation.reason;
+    settleRemoval(operation, this.version);
+    if (operation.status === "applied" && (operation.reason === "reinstall" || operation.reason === "restore-pending"))
+      delete operation.reason;
     return { ...this.base(), ...operation, installedVersion: installed };
   }
   dispose() {

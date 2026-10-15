@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
-import semver from 'semver'
+import { peerRangeDecision } from '../src/host/updates.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -170,10 +170,7 @@ if (existsSync(bootManifest)) runtimeVersion = JSON.parse(await readFile(bootMan
 const peers = []
 for (const [name, range] of Object.entries(manifest.peerDependencies ?? {})) {
   if (name !== '@deepseek-ai/dsh' && !name.startsWith('@deepseek-ai/dsh-')) continue
-  const ok =
-    typeof range === 'string' &&
-    Boolean(semver.validRange(range)) &&
-    semver.satisfies(runtimeVersion, range, { includePrerelease: true })
+  const ok = peerRangeDecision(range, runtimeVersion) === 'ok'
   peers.push({ name, range, runtime: runtimeVersion, required: true, ok })
 }
 if (peers.length === 0)

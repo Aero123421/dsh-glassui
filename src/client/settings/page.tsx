@@ -372,8 +372,18 @@ function UpdatesRow({ controller, t }: { controller: UpdateController; t: Transl
           {t('updateRunning')}: {view.runtimeVersion ?? __GLASSUI_VERSION__}
           {view.installedVersion ? ` · ${t('updateInstalledVersion')}: ${view.installedVersion}` : ''}
         </p>
-        <p role={['failed', 'blocked'].includes(view.status) ? 'alert' : 'status'}>{t(UPDATE_MESSAGES[view.status])}</p>
-        {view.reason ? <p className="glassui-note">{t(reason)}</p> : null}
+        <p
+          role={
+            ['failed', 'blocked'].includes(view.status) ||
+            view.reason === 'restore-failed' ||
+            view.reason === 'restore-pending'
+              ? 'alert'
+              : 'status'
+          }
+        >
+          {t(view.reason === 'restore-pending' ? 'updateReason_restore-pending' : UPDATE_MESSAGES[view.status])}
+        </p>
+        {view.reason && view.reason !== 'restore-pending' ? <p className="glassui-note">{t(reason)}</p> : null}
         {view.checkedAt ? (
           <p className="glassui-note">
             {t('updateChecked')}: {new Date(view.checkedAt).toLocaleString()}

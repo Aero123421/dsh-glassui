@@ -74,6 +74,7 @@ export function boundedFetch(
 export function sourceKind(source: unknown, cacheDir?: string, installedVersion?: string): 'github' | 'tarball'
 export function releaseCandidate(release: unknown, current: string): Candidate | null
 export function checkCompatibility(packageJson: unknown, candidate: Pick<Candidate, 'version'>, runtime: string): string
+export function peerRangeDecision(range: unknown, runtime: string): 'ok' | 'unknown' | 'incompatible'
 export function packageManifest(bytes: Buffer): unknown
 export function resultState(
   result: ChangeResult | null,
@@ -81,15 +82,23 @@ export function resultState(
   runtime: string,
   installed?: BundleInfo,
 ): Status
+export type RestoreState = 'ok' | 'failed' | 'pending' | 'cancelled' | 'cancelled-absent' | 'unconfirmed'
 export function installRelease(
   manager: Manager,
   spec: string,
   options: InstallBundleOptions,
-  previous?: { source?: string; enabled?: boolean },
-): Promise<{ result: ChangeResult; removed: boolean; restore?: 'ok' | 'failed' }>
-export function settleRemoval(operation: {
-  status?: string
-  reason?: string
-  restore?: 'ok' | 'failed'
-  reinstall?: boolean
-}): void
+  previous?: { source?: string; enabled?: boolean; version?: string },
+  hooks?: {
+    onRestoreRequest?: (requestId: string, previousVersion?: string) => void | Promise<void>
+  },
+): Promise<{ result: ChangeResult; removed: boolean; restore?: RestoreState; restoreRequestId?: string }>
+export function settleRemoval(
+  operation: {
+    status?: string
+    reason?: string
+    restore?: RestoreState
+    reinstall?: boolean
+    version?: string
+  },
+  runtimeVersion?: string,
+): void
