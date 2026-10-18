@@ -80,17 +80,17 @@ Some components pass their fill on to a part through a variable of their own —
 ### 3. Keep it correct
 
 - A `MutationObserver` on `<body>` queues changed subtrees after child-list, class, inline-style and opt-out changes. Changes to the plugin’s own pointer properties are ignored.
-- Existing surfaces in changed subtrees are reclassified together at the start of the next frame, before scanning new candidates. Their old marks stay in place until that frame, so dragging a layout boundary never paints an intermediate opaque state. Refraction keeps plain blur until the new size settles.
+- Existing surfaces in changed subtrees keep their marks until their replacement is committed in the same frame. Chrome is refreshed together. Independent code families are grouped into batches of about 64 elements; each block, banner and echo header stays in the same batch. New discovery waits for these batches to settle. Refraction keeps plain blur until the new size settles.
 - Palette changes — the dark attribute, inline styles on `<body>`, stylesheet additions, edits or loads — trigger a fresh token read and a rescan even when token values are unchanged. New component rules can change elevation or fills without changing the palette.
 - Window resize events refresh the palette and reclassify surfaces, updating media-query geometry, floating sidebar eligibility and the refraction area limit.
 - `transitionend` / `animationend` re-check the element concerned.
-- Work runs in `requestAnimationFrame` with a target budget of 8 ms per frame for new candidates, checked between batches of reads. Palette refreshes, reclassification of existing surfaces, browser style recalculation and writes can exceed that target.
+- Work runs in `requestAnimationFrame` with a target budget of 8 ms per frame for new candidates and reclassification batches. Chrome is processed in the first batch. Palette refreshes, a large family, browser style recalculation and writes can exceed that target.
 
 Tagged elements are verified cheaply: each kind has an expected computed background (read once from a probe), so a tagged element that still shows it keeps its marks without further work.
 
 ## Rendering
 
-All visual work is done by CSS.
+All visual work is done by CSS. On a settings content width below 240 px, the plugin renders its own full-width settings layer inside DSH’s existing dialog, using the public section close action. It does not target DSH class names or change the shared navigation layout.
 
 ### Precedence
 
@@ -151,7 +151,7 @@ Firefox accepts the `url()` syntax but draws nothing, and Safari does not suppor
 
 ## Settings
 
-The Host declares the settings with DSH's schema library; every field is `volatile`, so edits apply without a restart and DSH shows them on the Plugins page. The browser half follows DSH's settings form (`configForms`) through [`GlassController`](../src/client/controller.ts), which applies edits to the engine immediately and writes them back after 300 ms of quiet (dragging the slider writes once). A refused write is rolled back; a connection that cannot store settings keeps edits for the page.
+The Host declares the settings with DSH's schema library; every field is `volatile`, so edits apply without a restart and DSH shows them on the Plugins page. The browser half follows DSH's settings form (`configForms`) through [`GlassController`](../src/client/controller.ts), which applies committed edits and writes them back after 300 ms of quiet. Pointer sliders keep the native thumb, label and contained sample responsive, then commit the final value on release, blur or cancellation. Keyboard changes commit immediately. The engine temporarily suspends SVG refraction and highlights during pointer adjustments and restores them at the final value. A refused write is rolled back; a connection that cannot store settings keeps edits for the page.
 
 ## Shutdown
 
@@ -161,7 +161,7 @@ The Host declares the settings with DSH's schema library; every field is `volati
 
 | Preference                     | Effect                                                  |
 | ------------------------------ | ------------------------------------------------------- |
-| `prefers-reduced-transparency` | Fills become fully tinted; no refraction or highlights. |
+| `prefers-reduced-transparency` | Fills become fully opaque; no refraction or highlights. |
 | `prefers-contrast: more`       | Fills at least 85% opaque, stronger edges.              |
 | `prefers-reduced-motion`       | No pointer highlights.                                  |
 | `forced-colors: active`        | The plugin stays off entirely.                          |

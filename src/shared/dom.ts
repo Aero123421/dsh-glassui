@@ -14,6 +14,8 @@ export const ATTR_WALLPAPER = 'data-glassui-wallpaper'
 export const ATTR_STATIC_WALLPAPER = 'data-glassui-static-wallpaper'
 /** On `<html>` while pointer highlights are on. */
 export const ATTR_HIGHLIGHTS = 'data-glassui-highlights'
+/** While a density slider is being dragged; refraction resumes after the final value. */
+export const ATTR_ADJUSTING = 'data-glassui-adjusting'
 /** On `<body>` for the instant the engine reads DSH's own token values. */
 export const ATTR_RAW = 'data-glassui-raw'
 
@@ -80,6 +82,7 @@ export const FOOTPRINT_SELECTOR = [
   ATTR_WALLPAPER,
   ATTR_STATIC_WALLPAPER,
   ATTR_HIGHLIGHTS,
+  ATTR_ADJUSTING,
   ATTR_RAW,
   ATTR_SURFACE,
   ATTR_FILL,

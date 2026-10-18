@@ -7,6 +7,11 @@
 export const NS = 'dsh-glassui'
 
 export const en = {
+  'settings.close': 'Close',
+  'tint.preview': 'Glass preview',
+  'slider.hint': 'Preview while dragging. Release to apply across the page.',
+  'updateReason_manual-update':
+    'DSH refused to replace the plugin. Stop DSH and install the release with the CLI, then restart.',
   'inline.label': 'Inline-code opacity',
   'inline.readable': 'Readable',
   'inline.hint':
@@ -152,6 +157,11 @@ export type CopyKey = keyof typeof en
 type Copy = Readonly<Record<CopyKey, string>>
 
 export const ja: Copy = {
+  'settings.close': '閉じる',
+  'tint.preview': 'ガラスのプレビュー',
+  'slider.hint': 'ドラッグ中はここでプレビューします。離すと画面全体へ適用します。',
+  'updateReason_manual-update':
+    'DSH が置換を拒否しました。DSH を停止し、CLI でリリースを導入してから再起動してください。',
   'inline.label': 'インラインコードの不透明度',
   'inline.readable': '読みやすい',
   'inline.hint':
@@ -293,6 +303,10 @@ export const ja: Copy = {
 }
 
 export const zh: Copy = {
+  'settings.close': '关闭',
+  'tint.preview': '玻璃预览',
+  'slider.hint': '拖动时在此预览，松开后应用到整个页面。',
+  'updateReason_manual-update': 'DSH 拒绝替换插件。请停止 DSH，通过 CLI 安装该版本后重新启动。',
   'inline.label': '行内代码不透明度',
   'inline.readable': '易读',
   'inline.hint': '独立于代码块和透明度。推荐：60–85。对比度偏好可能提高不透明度。',

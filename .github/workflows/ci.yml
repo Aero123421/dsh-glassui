@@ -72,7 +72,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        dsh: ['0.2.0-rc.2', '0.2.1-alpha.2', 'alpha']
+        dsh: ['0.2.0-rc.2', '0.2.1-rc.2', 'alpha', 'next']
     steps:
       - uses: actions/checkout@v7
         with:

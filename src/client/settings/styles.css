@@ -14,6 +14,60 @@
   line-height: 22px;
 }
 
+.glassui-mount {
+  min-width: 0;
+}
+
+.glassui-slider-preview {
+  margin-top: 12px;
+  padding: 8px;
+  border-radius: 10px;
+  background-size: cover;
+  contain: layout paint;
+}
+.glassui-slider-preview__pane {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 8px;
+  backdrop-filter: blur(12px);
+  background-color: rgb(255 255 255 / max(var(--glassui-floor, 0), calc(0.16 + var(--glassui-preview-opacity) * 0.62)));
+}
+.glassui-slider-preview[data-scheme='dark'] .glassui-slider-preview__pane {
+  background-color: rgb(40 40 44 / max(var(--glassui-floor, 0), calc(0.16 + var(--glassui-preview-opacity) * 0.62)));
+}
+.glassui-slider-preview[data-kind='inlineCodeOpacity'] .glassui-slider-preview__pane {
+  background: transparent;
+  backdrop-filter: none;
+}
+.glassui-slider-preview code {
+  padding: 3px 6px;
+  border-radius: 4px;
+  background-color: rgb(245 246 248 / max(var(--glassui-preview-opacity), var(--glassui-floor, 0)));
+}
+.glassui-slider-preview[data-scheme='dark'] code {
+  background-color: rgb(48 48 54 / max(var(--glassui-preview-opacity), var(--glassui-floor, 0)));
+}
+.glassui-narrow {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--dsw-alias-bg-layer-1);
+  border-radius: inherit;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.glassui-narrow__dialog {
+  padding: 16px;
+  min-width: 0;
+}
+.glassui-narrow__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
 .glassui-hero {
   display: flex;
   align-items: center;

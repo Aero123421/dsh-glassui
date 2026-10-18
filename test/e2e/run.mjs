@@ -189,6 +189,44 @@ async function setRange(slider, value) {
 }
 
 describe(`dsh-glassui on DSH ${dshVersion}`, () => {
+  it('previews pointer slider drafts without repainting the page and commits release, blur, cancel and close', async () => {
+    const { page, errors, close } = await open()
+    try {
+      await openSettings(page)
+      const slider = page.getByRole('slider', { name: 'Transparency', exact: true })
+      for (const end of ['release', 'blur', 'cancel', 'close']) {
+        await setRange(slider, 35)
+        await slider.scrollIntoViewIfNeeded()
+        const box = await slider.boundingBox()
+        await page.mouse.move(box.x + box.width * 0.35, box.y + box.height / 2)
+        await page.mouse.down()
+        await page.mouse.move(box.x + box.width * 0.7, box.y + box.height / 2)
+        const draft = Number(await slider.inputValue())
+        assert.notEqual(draft, 35)
+        assert.equal(
+          await page.evaluate(() => window.__DSH_GLASSUI_DEBUG__.settings().tint),
+          35,
+          'page keeps the saved material during drag',
+        )
+        assert.equal(await page.locator('html').getAttribute('data-glassui-adjusting'), '')
+        if (end === 'blur') await slider.evaluate(element => element.blur())
+        else if (end === 'cancel') await slider.dispatchEvent('pointercancel')
+        else if (end === 'close') await page.keyboard.press('Escape')
+        if (end === 'release') await page.mouse.up()
+        await page.waitForFunction(value => window.__DSH_GLASSUI_DEBUG__.settings().tint === value, draft)
+        assert.equal(await page.locator('html').getAttribute('data-glassui-adjusting'), null)
+        if (end === 'close') assert.equal(await page.getByTestId('glassui-settings').count(), 0)
+        if (end !== 'release') await page.mouse.up()
+        await storedSetting('tint', draft)
+      }
+      await openSettings(page)
+      await setRange(page.getByRole('slider', { name: 'Transparency', exact: true }), 35)
+      await storedSetting('tint', 35)
+      assert.deepEqual(errors, [])
+    } finally {
+      await close()
+    }
+  })
   it('ships its boot rows in the page HTML', async () => {
     const html = await pageHtml()
     assert.ok(html.includes('/* dsh-glassui:'), 'static stylesheet')
@@ -321,9 +359,28 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
       await page.locator('.glassui-inline-preview').scrollIntoViewIfNeeded()
       await page.screenshot({ path: join(out, 'inline-ja-tablet.png') })
       await page.setViewportSize({ width: 390, height: 844 })
+      await page.locator('.glassui-narrow').waitFor()
+      const mobileClose = page.getByRole('button', { name: '閉じる', exact: true })
+      await mobileClose.focus()
+      await page.keyboard.press('Shift+Tab')
+      assert.equal(
+        await page.locator('.glassui-narrow').evaluate(el => el.contains(document.activeElement)),
+        true,
+        'focus stays in the mobile settings',
+      )
       await page.locator('.glassui-inline-preview').scrollIntoViewIfNeeded()
       await page.screenshot({ path: join(out, 'inline-ja-phone.png') })
       assert.equal(await page.locator('.glassui-page').evaluate(el => el.scrollWidth <= el.clientWidth + 1), true)
+      assert.ok(
+        await page.locator('.glassui-page').evaluate(el => el.clientWidth >= 260),
+        'phone settings use readable content width',
+      )
+      assert.ok(
+        await page
+          .getByRole('slider', { name: 'インラインコードの不透明度', exact: true })
+          .evaluate(el => el.getBoundingClientRect().width >= 220),
+        'phone slider remains usable',
+      )
       for (let attempt = 0; attempt < 30 && !(await pageHtml()).includes('"inlineCodeOpacity":72'); attempt++)
         await page.waitForTimeout(200)
       assert.ok((await pageHtml()).includes('"inlineCodeOpacity":72'))
@@ -476,6 +533,7 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
       await page.getByRole('switch', { name: 'ガラスの質感', exact: true }).click()
       await page.waitForFunction(() => !document.documentElement.hasAttribute('data-glassui'))
       await page.setViewportSize({ width: 390, height: 760 })
+      await page.locator('.glassui-narrow').waitFor()
       await page.emulateMedia({ reducedMotion: 'reduce' })
       await page.locator('.glassui-update').scrollIntoViewIfNeeded()
       assert.equal(await page.evaluate(() => document.querySelector('.glassui-update').scrollWidth <= innerWidth), true)

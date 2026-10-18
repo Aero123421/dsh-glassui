@@ -357,12 +357,6 @@ function retainInstall(promise) {
   void promise.then(release, release)
   return promise
 }
-function removalAccepted(result) {
-  return Boolean(
-    result && !result.error && (result.application === 'applied' || result.application === 'restart-required'),
-  )
-}
-
 function failedInstall(code = 'operation-error') {
   return {
     changed: false,
@@ -989,28 +983,6 @@ async function reinstallPrevious(manager, previous, hooks) {
   return { state: classifyRestore(restored, previous, listed), requestId }
 }
 /**
- * Put the previous spec back when the package is confirmed absent.
- * `failed`, `cancelled`, and `overridden` all restore in that case.
- * `already-installed` does not: the package is still the one that was there.
- * @param {Manager} manager
- * @param {ChangeResult | null | undefined} installed
- * @param {{ source?: string, enabled?: boolean, version?: string } | undefined} previous
- * @param {RestoreHooks | undefined} hooks
- * @returns {Promise<{ state: RestoreState, requestId: string } | undefined>}
- */
-async function restoreIfMissing(manager, installed, previous, hooks) {
-  const source = previous?.source
-  if (typeof source !== 'string' || source === '') return undefined
-  if (installed?.error?.code === 'already-installed') return undefined
-  const outcome = installed?.application
-  if (outcome !== 'failed' && outcome !== 'cancelled' && outcome !== 'overridden') return undefined
-  const listed = await installedCopy(manager)
-  // Absence is not confirmed, or the package is still installed. Do not install another copy.
-  if (!listed.known || listed.row) return undefined
-  return reinstallPrevious(manager, previous, hooks)
-}
-
-/**
  * Record a removal that the new install did not replace.
  * `ok` becomes `failed` / `restored` only after the previous version is confirmed.
  * `pending` stays `restart-required`. `cancelled` stays `cancelled`.
@@ -1049,99 +1021,6 @@ export function settleRemoval(operation, runtimeVersion) {
   if (operation.restore === 'unconfirmed' || (operation.reinstall && operation.status === 'failed')) {
     operation.status = 'unknown'
     operation.reason = 'reinstall'
-  }
-}
-
-/**
- * Install one verified release.
- * With HMR, DSH 0.2.1-alpha.3 returns `already-installed` from `installBundle`
- * before pnpm when the spec names an installed package, and changes no profile
- * file. The Plugins page (`ui-plugin-manager`, not the package being updated)
- * calls `removeBundle`, then `installBundle`. This bundle is that package, so
- * removal stops it before `removeBundle` resolves. The follow-up install is
- * therefore chained on the manager object the caller captured, not on a second
- * lookup after disposal. Without HMR, removal of a running bundle returns
- * `stop-profile` and leaves it installed; installing over it reports
- * `restart-required`, including on 0.2.1-alpha.2. A throw from that overwrite
- * install is a failed install; the package was not removed. Any other removal
- * failure is followed by an install of the new spec only when this package is
- * still present. If `removeBundle` throws, or it reports failure while
- * `listBundles` shows the package gone, the previous spec is installed again.
- * The same restore runs when the new install returns `failed`, `cancelled`, or
- * `overridden` and the package is absent. The restore request id is the one
- * `hooks.onRestoreRequest` observed before that `installBundle`.
- * A confirmed removal calls `hooks.onRemoved` before the follow-up install so the
- * journal can show that this operation removed the package.
- * @param {Manager} manager
- * @param {string} spec
- * @param {import('@deepseek-ai/dsh-plugin-manager/types').InstallBundleOptions} options
- * @param {{ source?: string, enabled?: boolean, version?: string } | undefined} [previous]
- * @param {{ onRestoreRequest?: (requestId: string, previousVersion?: string) => Promise<void> | void, onRemoved?: () => Promise<void> | void } | undefined} [hooks]
- */
-async function rememberRemoval(hooks) {
-  if (typeof hooks?.onRemoved === 'function') await hooks.onRemoved()
-}
-export async function installRelease(manager, spec, options, previous, hooks) {
-  const installed = await manager.installBundle(spec, options)
-  if (installed?.error?.code !== 'already-installed' || typeof manager.removeBundle !== 'function') {
-    return { result: installed, removed: false }
-  }
-  let removed
-  try {
-    removed = await manager.removeBundle(PACKAGE)
-  } catch {
-    removed = failedInstall()
-  }
-  if (removed?.error?.code === 'stop-profile') {
-    const listed = await installedCopy(manager)
-    // `stop-profile` leaves the package installed. Restore only when a list proves it is gone.
-    if (listed.known && !listed.row) {
-      await rememberRemoval(hooks)
-      return removalNeedsRestore(manager, removed, previous, hooks)
-    }
-    try {
-      return { result: await manager.installBundle(spec, options), removed: false }
-    } catch {
-      return { result: failedInstall(), removed: false }
-    }
-  }
-  if (!removalAccepted(removed)) {
-    const listed = await installedCopy(manager)
-    if (!listed.known) return { result: removed ?? installed, removed: true, restore: 'unconfirmed' }
-    if (!listed.row) {
-      await rememberRemoval(hooks)
-      return removalNeedsRestore(manager, removed ?? installed, previous, hooks)
-    }
-    return { result: removed ?? installed, removed: false }
-  }
-  await rememberRemoval(hooks)
-  let result
-  try {
-    result = await manager.installBundle(spec, options)
-  } catch {
-    result = failedInstall()
-  }
-  const restore = await restoreIfMissing(manager, result, previous, hooks)
-  return {
-    result,
-    removed: true,
-    removalProven: true,
-    ...(restore ? { restore: restore.state, restoreRequestId: restore.requestId } : {}),
-  }
-}
-/**
- * @param {Manager} manager
- * @param {ChangeResult} result
- * @param {{ source?: string, enabled?: boolean, version?: string } | undefined} previous
- * @param {{ onRestoreRequest?: (requestId: string, previousVersion?: string) => Promise<void> | void } | undefined} hooks
- */
-async function removalNeedsRestore(manager, result, previous, hooks) {
-  const restore = await reinstallPrevious(manager, previous, hooks)
-  return {
-    result,
-    removed: true,
-    removalProven: true,
-    ...(restore ? { restore: restore.state, restoreRequestId: restore.requestId } : {}),
   }
 }
 
@@ -1341,7 +1220,9 @@ export class PluginUpdates {
         this.closed
       )
         throw new Error('busy')
-      const spec = latest.source === 'github' ? `github:${REPOSITORY}#${candidate.tag}` : path
+      // Install exactly the archive that was verified. A new staged path lets
+      // DSH replace the installed dependency without deleting this plugin first.
+      const spec = path
       operation.status = 'installing'
       await this.save(operation)
       if (this.closed || this.isBusy()) throw new Error('busy')
@@ -1361,59 +1242,18 @@ export class PluginUpdates {
       try {
         await this.save(operation)
       } catch {
-        // onRestoreRequest saves again before a restore install.
+        // The final operation write below retries the receipt.
       }
-      const outcome = await retainInstall(
-        installRelease(
-          manager,
-          spec,
-          {
-            enabled: final.bundle.enabled,
-            requestId: operation.requestId,
-            saveExact: true,
-          },
-          previous,
-          {
-            onRemoved: async () => {
-              operation.removedByUpdate = operation.requestId
-              if (typeof operation.removedAt !== 'number') operation.removedAt = Date.now()
-              appendReceipt(operation, {
-                kind: 'removed-by-update',
-                id: operation.requestId,
-                at: operation.removedAt,
-              })
-              try {
-                await this.save(operation)
-              } catch {
-                // execute writes the marker again after installRelease returns.
-              }
-            },
-            onRestoreRequest: async (requestId, previousVersion) => {
-              operation.restoreRequestId = requestId
-              operation.previousSource = previous.source
-              operation.previousEnabled = previous.enabled
-              if (typeof previousVersion === 'string' && previousVersion !== '')
-                operation.previousVersion = previousVersion
-              try {
-                await this.save(operation)
-              } catch {
-                // The id remains on the operation for the journal write below.
-              }
-            },
-          },
-        ),
+      const result = await retainInstall(
+        manager.installBundle(spec, {
+          enabled: final.bundle.enabled,
+          requestId: operation.requestId,
+          saveExact: true,
+        }),
       )
-      operation.result = safeResult(outcome.result)
-      if (outcome.removalProven) {
-        operation.removedByUpdate = operation.requestId
-        if (typeof operation.removedAt !== 'number') operation.removedAt = Date.now()
-        appendReceipt(operation, {
-          kind: 'removed-by-update',
-          id: operation.requestId,
-          at: operation.removedAt,
-        })
-      }
-      const application = outcome.result?.application
+      operation.result = safeResult(result)
+      if (result?.error?.code === 'already-installed') operation.reason = 'manual-update'
+      const application = result?.application
       if (application === 'applied' || application === 'restart-required') {
         operation.recordedAt = Date.now()
         appendReceipt(operation, {
@@ -1423,8 +1263,6 @@ export class PluginUpdates {
           application,
         })
       }
-      if (outcome.restore) operation.restore = outcome.restore
-      if (outcome.restoreRequestId) operation.restoreRequestId = outcome.restoreRequestId
       if (previous.version) operation.previousVersion = previous.version
       let installed
       try {
@@ -1432,8 +1270,7 @@ export class PluginUpdates {
       } catch {
         installed = undefined
       }
-      operation.status = resultState(outcome.result, operation.version, this.version, installed)
-      if (outcome.removed && !outcome.restore && operation.status === 'failed') operation.reinstall = true
+      operation.status = resultState(result, operation.version, this.version, installed)
       settleRemoval(operation, this.version)
     } catch (error) {
       operation.status = managerInvoked ? 'unknown' : 'failed'

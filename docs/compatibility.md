@@ -6,12 +6,14 @@ Glass UI is built to keep working when DSH changes. This page describes what it 
 
 `peerDependencies["@deepseek-ai/dsh"]` is the supported range — currently `>=0.2.0-rc.2 <0.3.0-0`. At boot, DSH skips a plugin when a `@deepseek-ai/dsh` or `@deepseek-ai/dsh-*` peer range does not admit the running version. That comparison includes prereleases, so this range admits 0.2.1-alpha.3 and later 0.2.x prereleases (0.2.2-alpha.1, 0.2.9-rc.1, and so on). It does not admit 0.3.0, or a 0.3.0 prerelease such as `0.3.0-alpha.1`. The same check rejects an empty range, a wildcard (`*`, `x`, `>=0`), and any range that lacks a lower or upper bound on an alternative or that reaches outside the running line. On 0.2 that line starts at this plugin's floor `0.2.0-rc.2` and ends before `0.3.0-0`, so `<0.3.0-0`, `<=0.2.9`, `<0.2.2`, `>=0.0.0 <0.3.0-0`, `<99`, `^0`, and `<0.3.0` (which still admits `0.3.0-0`) are compatibility-unknown. The published `>=0.2.0-rc.2 <0.3.0-0` stays inside that line. Other 0.x lines run from `0.<minor>.0-0` to the next minor. On 1.x and later the line runs from `<major>.0.0-0` to the next major. DSH refuses to install a plugin outside the range and offers an explicit, per-version exemption instead. The range is widened only after the E2E suite has passed on the new release. node-semver's default mode (without `includePrerelease`) still does not treat `0.2.1-alpha.3` as inside this range, because the prerelease comparators are on 0.2.0 and 0.3.0. DSH's boot check is the one that admits it.
 
-| DSH                   | Status                                                                                                                    |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| 0.2.1-alpha.2         | Tested on every pull request (pinned in `package.json` → `glassui.e2e.dsh`).                                              |
-| 0.2.1-alpha.3         | Browser E2E passed for this change. The `alpha` dist-tag currently resolves to this release.                              |
-| 0.2.0-rc.2 (`latest`) | Tested on every pull request and release.                                                                                 |
-| newest `alpha`        | Token and contract check on every pull request (`npm run compat -- --install alpha`). Nightly browser E2E does not block. |
+| DSH                     | Status                                                                                                                                                           |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0.2.1-rc.2 (`next`)     | Pinned in `package.json` → `glassui.e2e.dsh`; browser E2E on every pull request and release.                                                                     |
+| 0.2.1-alpha.5 (`alpha`) | Token and contract checks on every pull request; nightly browser E2E.                                                                                            |
+| 0.2.0-rc.2 (`latest`)   | Token checks and browser E2E on every pull request and release. This version offers manual plugin updates because its bundle list omits the installation source. |
+| newest `alpha` / `next` | Token and contract checks on every pull request; nightly browser E2E does not block.                                                                             |
+
+The dist-tag resolutions above were checked on 2026-10-18. A dist-tag can move independently of a Glass UI release.
 
 ## What the plugin depends on
 
@@ -28,7 +30,7 @@ It deliberately does **not** depend on DSH class names, DOM structure, component
 ```sh
 npm run compat -- --install alpha            # install @deepseek-ai/dsh@alpha into a temp dir and check it
 npm run compat -- --dsh path/to/a/dsh/install
-npm run compat -- --install 0.2.1-alpha.3 --json
+npm run compat -- --install 0.2.1-rc.2 --json
 ```
 
 `scripts/compat.mjs` scans the installed `@deepseek-ai/*` packages for every token definition and contract above and exits non-zero when a required one is missing. The E2E suite then exercises the real thing:
@@ -37,7 +39,7 @@ npm run compat -- --install 0.2.1-alpha.3 --json
 DSH_VERSION=alpha npm run test:e2e
 ```
 
-Pull requests run the token and contract check against 0.2.0-rc.2, 0.2.1-alpha.2, and the `alpha` dist-tag. That check also requires the plugin's DSH peer range to admit the installed runtime, using the same prerelease rule as boot. Nightly browser E2E runs the pinned version, `latest`, and `alpha`; a failure on a dist-tag does not block.
+Pull requests run the token and contract check against 0.2.0-rc.2, 0.2.1-rc.2, and the `alpha` and `next` dist-tags. That check also requires the plugin's DSH peer range to admit the installed runtime, using the same prerelease rule as boot. Nightly browser E2E runs the pinned version, `latest`, `alpha`, and `next`; a failure on a dist-tag does not block.
 
 ## When DSH changes
 

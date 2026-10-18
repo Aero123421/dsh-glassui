@@ -13,6 +13,7 @@
 import { nudgeApart, parseColor, type Rgba } from '../../shared/color.ts'
 import {
   ATTR_ECHO,
+  ATTR_ADJUSTING,
   ATTR_FILL,
   ATTR_FLAT,
   ATTR_FLOAT,
@@ -197,6 +198,8 @@ export class GlassEngine {
   private readonly singles = new Set<Element>()
   /** Keep existing glass until its replacement can be read and committed in one frame. */
   private readonly invalidated = new Set<Element>()
+  /** Independent surface families; retain their old glass until each family can be replaced. */
+  private reclassifications: Element[][] = []
   /** Elements whose marks were just removed; they are classified again in the next frame. */
   private readonly requeue: Element[] = []
   private walkers: { root: Element; walker: TreeWalker; started: boolean }[] = []
@@ -213,6 +216,7 @@ export class GlassEngine {
   private headWatch: MutationObserver | undefined
   private stopEnvironment: (() => void) | undefined
   private disposed = false
+  private adjusting = false
 
   /**
    * @param win - window of the page.
@@ -269,7 +273,7 @@ export class GlassEngine {
     if (previous?.tint !== settings.tint) {
       root.style.setProperty(VAR_TINT, String(settings.tint / 100))
       this.expected.clear()
-      this.lenses.setBlur(this.blurPx())
+      if (!this.adjusting) this.lenses.setBlur(this.blurPx())
       // New or re-enabled menus are recognized by the blur derived from tint.
       this.menuFilterDirty = true
     }
@@ -297,6 +301,7 @@ export class GlassEngine {
     this.ensureStylesheet()
     const root = this.doc.documentElement
     root.setAttribute(ATTR_ROOT, 'on')
+    if (this.adjusting) root.setAttribute(ATTR_ADJUSTING, '')
     root.setAttribute(ATTR_SIDEBAR, settings.sidebar)
     root.style.setProperty(VAR_TINT, String(settings.tint / 100))
     root.style.setProperty(VAR_INLINE_OPACITY, String(settings.inlineCodeOpacity / 100))
@@ -311,7 +316,6 @@ export class GlassEngine {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ['class', 'style', ATTR_IGNORE, ATTR_MATERIAL, 'contenteditable'],
       attributeOldValue: true,
     })
     this.bodyWatch = new this.win.MutationObserver(() => this.paletteChanged())
@@ -357,6 +361,7 @@ export class GlassEngine {
     this.roots.clear()
     this.singles.clear()
     this.invalidated.clear()
+    this.reclassifications = []
     this.exclusionsDirty = false
     this.walkers = []
     this.requeue.length = 0
@@ -377,6 +382,7 @@ export class GlassEngine {
 
     const root = this.doc.documentElement
     root.removeAttribute(ATTR_ROOT)
+    root.removeAttribute(ATTR_ADJUSTING)
     root.removeAttribute(ATTR_SIDEBAR)
     root.style.removeProperty(VAR_TINT)
     root.style.removeProperty(VAR_INLINE_OPACITY)
@@ -440,14 +446,27 @@ export class GlassEngine {
   private applyPresentation(): void {
     const settings = this.settings
     if (!this.running || !settings) return
-    this.lenses.setBlur(this.blurPx())
+    if (!this.adjusting) this.lenses.setBlur(this.blurPx())
     const darwin = this.doc.documentElement.getAttribute(PLATFORM_ATTRIBUTE) === 'darwin'
     this.wallpaper.apply(settings, this.scheme(), darwin, !this.env.reducedMotion())
     this.highlights.setEnabled(
-      settings.highlights && this.env.finePointer() && !this.env.reducedMotion() && !this.env.reducedTransparency(),
+      settings.highlights &&
+        !this.adjusting &&
+        this.env.finePointer() &&
+        !this.env.reducedMotion() &&
+        !this.env.reducedTransparency(),
     )
     this.lenses.setEnabled(settings.refraction && this.env.refraction && !this.env.reducedTransparency())
     this.syncLenses()
+  }
+
+  /** Drag with plain blur; SVG filter parameters and highlights settle once on release. */
+  setAdjusting(on: boolean): void {
+    if (this.disposed || this.adjusting === on) return
+    this.adjusting = on
+    if (!this.running) return
+    this.doc.documentElement.toggleAttribute(ATTR_ADJUSTING, on)
+    this.applyPresentation()
   }
 
   private ensureStylesheet(): void {
@@ -605,6 +624,17 @@ export class GlassEngine {
       if (this.ownRecord(record)) continue
       if (record.type === 'attributes') {
         if (!(record.target instanceof this.win.Element)) continue
+        const attribute = record.attributeName ?? ''
+        if (attribute.startsWith('data-glassui-') && attribute !== ATTR_IGNORE && attribute !== ATTR_MATERIAL) continue
+        if (
+          attribute !== 'class' &&
+          attribute !== 'style' &&
+          attribute !== ATTR_IGNORE &&
+          attribute !== ATTR_MATERIAL &&
+          attribute !== 'contenteditable' &&
+          this.exclude === ''
+        )
+          continue
         if (record.attributeName === 'style' && this.onlyOwnStyleChanged(record)) continue
         this.exclusionsDirty = true
         // An ancestor can change descendants' fills, exclusions or stacking.
@@ -650,20 +680,59 @@ export class GlassEngine {
    * Refresh already visible glass before scanning new candidates. A resize drag
    * can change an ancestor's style in every animation frame. Removing its marks
    * in the mutation callback would paint an opaque frame before the next scan.
-   * Read and restore the existing surfaces together, including nested fills and
-   * echoes, and let syncLenses reconcile only the final set.
+   * Read and restore each surface family together, including nested fills and
+   * echoes. Independent code families can settle across frames without removing
+   * their old marks; chrome is prioritized during a resize.
    */
-  private reclassify(): boolean {
-    if (this.invalidated.size === 0) return false
-    const roots = [...this.invalidated]
-    this.invalidated.clear()
-    const echoes = new Set(this.echoes)
-    const elements = [...this.tagged.keys(), ...this.echoes]
-      .filter(element => roots.some(root => root.contains(element)))
-      .sort((a, b) => (a.compareDocumentPosition(b) & this.win.Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+  private reclassify(deadline: number): boolean {
+    if (this.invalidated.size > 0) {
+      const roots = [...this.invalidated]
+      this.invalidated.clear()
+      const pending = new Set(this.reclassifications.flat())
+      const elements = [...new Set([...this.tagged.keys(), ...this.echoes, ...pending])]
+        .filter(element => pending.has(element) || roots.some(root => root.contains(element)))
+        .sort((a, b) => (a.compareDocumentPosition(b) & this.win.Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+      const families = new Map<Element, Element[]>()
+      for (const element of elements) {
+        // Refresh all chrome together so viewport-sized backdrops never gain or
+        // lose a composited layer between frames. A nested code banner belongs
+        // to its outer block; independent blocks can settle in later frames.
+        let family: Element = this.doc.body
+        for (let parent: Element | null = element; parent; parent = parent.parentElement) {
+          if (this.tagged.get(parent)?.kind === 'code') family = parent
+        }
+        const group = families.get(family) ?? []
+        group.push(element)
+        families.set(family, group)
+      }
+      const chrome = families.get(this.doc.body)
+      families.delete(this.doc.body)
+      const batches: Element[][] = []
+      let batch = chrome ?? []
+      for (const family of families.values()) {
+        if (batch.length >= 64) {
+          batches.push(batch)
+          batch = []
+        }
+        batch.push(...family)
+      }
+      if (batch.length > 0) batches.push(batch)
+      this.reclassifications = batches
+    }
+    let dirty = false
+    while (this.reclassifications.length > 0) {
+      const elements = this.reclassifications.shift()
+      if (elements) dirty = this.reclassifyFamily(elements) || dirty
+      if (performance.now() >= deadline) break
+    }
+    return dirty
+  }
+
+  private reclassifyFamily(elements: Element[]): boolean {
+    const echoes = new Set(elements.filter(element => this.echoes.has(element)))
     if (elements.length === 0) return false
     for (const element of elements) {
-      if (this.tagged.has(element)) this.untag(element)
+      if (this.tagged.has(element)) this.untag(element, false)
       if (this.echoes.delete(element)) element.removeAttribute(ATTR_ECHO)
     }
     const decisions = elements
@@ -676,7 +745,7 @@ export class GlassEngine {
       ({ element }) => echoes.has(element) && this.isEcho(element, this.win.getComputedStyle(element).backgroundColor),
     )
     for (const { element } of restoredEchoes) {
-      this.untag(element)
+      this.untag(element, false)
       element.setAttribute(ATTR_ECHO, '')
       this.echoes.add(element)
     }
@@ -692,6 +761,7 @@ export class GlassEngine {
     this.frame = 0
     if (!this.running) return
     const started = performance.now()
+    const deadline = started + FRAME_BUDGET_MS
     if (this.exclusionsDirty || this.paletteDirty) {
       this.exclusionsDirty = false
       this.refreshExclusions()
@@ -701,7 +771,7 @@ export class GlassEngine {
       this.refreshPalette()
       this.applyPresentation()
     }
-    let dirty = this.reclassify()
+    let dirty = this.reclassify(deadline)
     for (const root of this.roots) {
       if (!this.admissible(root)) continue
       // A walk already under way may have passed the new subtree, so only a pending walk can absorb it.
@@ -712,16 +782,16 @@ export class GlassEngine {
     }
     this.roots.clear()
 
-    const deadline = started + FRAME_BUDGET_MS
     const decisions: Decision[] = []
     for (const element of this.singles) {
+      if (this.reclassifications.length > 0 || performance.now() >= deadline) break
       this.singles.delete(element)
       if (element.isConnected && CANDIDATE_TAGS.has(element.tagName) && this.admissible(element)) {
         decisions.push(this.inspect(element))
       }
       if ((decisions.length & 63) === 0 && performance.now() > deadline) break
     }
-    outer: while (this.walkers.length > 0 && performance.now() <= deadline) {
+    outer: while (this.reclassifications.length === 0 && this.walkers.length > 0 && performance.now() <= deadline) {
       const entry = this.walkers[0]
       if (!entry) break
       if (!entry.root.isConnected || !this.admissible(entry.root)) {
@@ -750,7 +820,8 @@ export class GlassEngine {
     this.stats.totalMs += elapsed
     this.stats.longestMs = Math.max(this.stats.longestMs, elapsed)
     if (dirty) this.changed()
-    if (this.walkers.length > 0 || this.roots.size > 0 || this.singles.size > 0) this.schedule()
+    if (this.walkers.length > 0 || this.roots.size > 0 || this.singles.size > 0 || this.reclassifications.length > 0)
+      this.schedule()
   }
 
   /** Whether an element outside a walk (a single) may be inspected. */
@@ -885,9 +956,10 @@ export class GlassEngine {
     return true
   }
 
-  private untag(element: Element): void {
+  private untag(element: Element, sweepEchoes = true): void {
     for (const name of [ATTR_SURFACE, ATTR_FILL, ATTR_FLAT, ATTR_PAINT, ATTR_FLOAT]) element.removeAttribute(name)
     this.tagged.delete(element)
+    if (!sweepEchoes) return
     // Parts that echoed this surface paint their own color again.
     for (const echo of this.echoes) {
       if (element.contains(echo)) {

@@ -1,6 +1,6 @@
 # E2E: the packed plugin in a real DSH from npm, driven in Chromium.
 #   - pull requests touching the plugin or the harness: the pinned DSH
-#   - nightly: the pinned DSH, `latest` and `alpha`; a failure on a dist-tag means
+#   - nightly: the pinned DSH, `latest`, `alpha` and `next`; a failure on a dist-tag means
 #     a new DSH needs attention (peer range, tokens) but does not block anything
 #   - called by the release workflow before publishing
 name: E2E
@@ -35,11 +35,11 @@ jobs:
     name: E2E (DSH ${{ matrix.dsh || 'pinned' }})
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    continue-on-error: ${{ matrix.dsh == 'alpha' || matrix.dsh == 'latest' }}
+    continue-on-error: ${{ matrix.dsh == 'alpha' || matrix.dsh == 'latest' || matrix.dsh == 'next' }}
     strategy:
       fail-fast: false
       matrix:
-        dsh: ${{ github.event_name == 'schedule' && fromJSON('["", "0.2.0-rc.2", "latest", "alpha"]') || fromJSON('["", "0.2.0-rc.2"]') }}
+        dsh: ${{ github.event_name == 'schedule' && fromJSON('["", "latest", "alpha", "next"]') || fromJSON('["", "0.2.0-rc.2"]') }}
     steps:
       - uses: actions/checkout@v7
         with:

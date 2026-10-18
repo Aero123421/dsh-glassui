@@ -19,6 +19,7 @@ export interface SettingsForm {
 export interface EngineHandle {
   apply(settings: GlassSettings): void
   diagnostics(): Diagnostics
+  setAdjusting?(on: boolean): void
 }
 
 /**
@@ -58,6 +59,18 @@ export class GlassController {
   private save: SaveState = 'loading'
   private state: ControllerState
   private readonly listeners = new Set<() => void>()
+  private readonly adjustments = new Map<object, (() => void) | undefined>()
+
+  /** Keep pointer controls responsive while their final material is being chosen. */
+  beginAdjustment(settle?: () => void): () => void {
+    if (this.disposed) return () => undefined
+    const token = {}
+    this.adjustments.set(token, settle)
+    if (this.adjustments.size === 1) this.engine.setAdjusting?.(true)
+    return () => {
+      if (this.adjustments.delete(token) && this.adjustments.size === 0) this.engine.setAdjusting?.(false)
+    }
+  }
 
   /**
    * @param engine - the engine to drive.
@@ -150,6 +163,7 @@ export class GlassController {
   /** Flush debounced writes and hold editing until the update request settles. */
   async settleForUpdate(): Promise<() => void> {
     if (this.disposed || this.updateLock) throw new Error('settings')
+    for (const settle of [...this.adjustments.values()]) settle?.()
     this.updateLock = true
     this.recompute()
     const release = (): void => {
@@ -241,6 +255,8 @@ export class GlassController {
   /** Cancel pending writes. */
   dispose(): void {
     this.disposed = true
+    this.adjustments.clear()
+    this.engine.setAdjusting?.(false)
     this.detachForm?.()
     this.form = undefined
     for (const timer of this.timers.values()) clearTimeout(timer)

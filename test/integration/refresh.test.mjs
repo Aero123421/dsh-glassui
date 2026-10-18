@@ -5,6 +5,53 @@ import { closeBrowser, openFixture, settle, surfaces } from './fixture.mjs'
 after(closeBrowser)
 
 describe('style and viewport refreshes', () => {
+  it('keeps chrome and code families glass while a long transcript changes palette', async () => {
+    const { page, errors, close } = await openFixture({ config: { refraction: false, highlights: false } })
+    try {
+      await page.evaluate(() => {
+        const fragment = document.createDocumentFragment()
+        for (let n = 0; n < 120; n++) {
+          const row = document.createElement('div')
+          row.setAttribute('data-markdown-variant', 'message')
+          row.innerHTML =
+            '<div class="code"><div class="code-header">ts</div><div class="code-banner">Code</div><pre><code>const n = 1</code></pre></div>'
+          fragment.append(row)
+        }
+        document.getElementById('chat').append(fragment)
+      })
+      await settle(page, 60)
+      for (const dark of [true, false]) {
+        const result = await page.evaluate(async dark => {
+          let missing = 0,
+            frame
+          const sample = () => {
+            for (const id of ['frame', 'sidebar', 'composer', 'dialog']) {
+              if (!document.getElementById(id).hasAttribute('data-glassui-surface')) missing++
+            }
+            for (const code of document.querySelectorAll('#chat .code')) {
+              if (code.getAttribute('data-glassui-surface') !== 'code') missing++
+            }
+            frame = requestAnimationFrame(sample)
+          }
+          frame = requestAnimationFrame(sample)
+          document.body.toggleAttribute('data-ds-dark-theme', dark)
+          await window.__fixture.frames(60)
+          cancelAnimationFrame(frame)
+          return {
+            missing,
+            blocks: document.querySelectorAll('#chat .code[data-glassui-surface="code"]').length,
+            banners: document.querySelectorAll('#chat .code-banner[data-glassui-flat]').length,
+            headers: document.querySelectorAll('#chat .code-header[data-glassui-echo]').length,
+          }
+        }, dark)
+        assert.deepEqual(result, { missing: 0, blocks: 120, banners: 120, headers: 120 })
+      }
+      assert.deepEqual(errors, [])
+    } finally {
+      await close()
+    }
+  })
+
   it('updates sidebar geometry when only a media query changes its width', async () => {
     const { page, errors, close } = await openFixture({ config: { refraction: false } })
     try {

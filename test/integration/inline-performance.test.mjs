@@ -1,12 +1,78 @@
 import assert from 'node:assert/strict'
 import { after, describe, it } from 'node:test'
 import { closeBrowser, openFixture, settle, surfaces } from './fixture.mjs'
+import { parseColor } from '../../src/shared/color.ts'
 
 after(closeBrowser)
 const background = (page, id = 'inline-code') =>
   page.locator(`#${id}`).evaluate(el => getComputedStyle(el).backgroundColor)
 
 describe('inline-code material', () => {
+  it('enforces the final opacity floor on chrome, code, menus and explicit materials', async () => {
+    const f = await openFixture({ extraBody: '<div id="explicit" data-glassui-material="regular">Material</div>' })
+    try {
+      const cdp = await f.page.context().newCDPSession(f.page)
+      for (const dark of [false, true]) {
+        await f.page.evaluate(dark => document.body.toggleAttribute('data-ds-dark-theme', dark), dark)
+        for (const [name, value, floor] of [
+          ['prefers-contrast', 'more', 0.85],
+          ['prefers-reduced-transparency', 'reduce', 1],
+        ]) {
+          await cdp.send('Emulation.setEmulatedMedia', { features: [{ name, value }] })
+          await settle(f.page, 20)
+          for (const id of ['sidebar', 'composer', 'dialog', 'code', 'menu', 'inline-code', 'explicit']) {
+            const color = await background(f.page, id)
+            assert.ok(parseColor(color)?.a >= floor, `${id} ${dark ? 'dark' : 'light'}: ${color}, floor ${floor}`)
+          }
+        }
+      }
+      assert.deepEqual(f.errors, [])
+    } finally {
+      await f.close()
+    }
+  })
+
+  it('tracks exclusion selectors when only data-state, aria-expanded or id changes', async () => {
+    const f = await openFixture({ config: { exclude: '[data-state="open"], [aria-expanded="true"], #leave-alone' } })
+    try {
+      for (const [attribute, value] of [
+        ['data-state', 'open'],
+        ['aria-expanded', 'true'],
+        ['id', 'leave-alone'],
+      ]) {
+        await f.page
+          .locator('.dialog')
+          .filter({ hasText: 'Dialog' })
+          .first()
+          .evaluate((element, args) => element.setAttribute(...args), [attribute, value])
+        await settle(f.page, 20)
+        const state = await f.page
+          .locator('.dialog')
+          .filter({ hasText: 'Dialog' })
+          .first()
+          .evaluate(element => ({
+            marker: element.hasAttribute('data-glassui-excluded'),
+            surface: element.hasAttribute('data-glassui-surface'),
+            blur: getComputedStyle(element).backdropFilter,
+          }))
+        assert.deepEqual(state, { marker: true, surface: false, blur: 'none' })
+        await f.page
+          .locator('.dialog')
+          .filter({ hasText: 'Dialog' })
+          .first()
+          .evaluate((element, attribute) => {
+            element.removeAttribute(attribute)
+            element.id = 'dialog'
+          }, attribute)
+        await settle(f.page, 20)
+        assert.equal((await surfaces(f.page)).dialog?.kind, 'panel')
+      }
+      assert.deepEqual(f.errors, [])
+    } finally {
+      await f.close()
+    }
+  })
+
   it('updates opacity independently, respects theme overrides and restores stock on disable', async () => {
     const stock = await openFixture({ plugin: false })
     const f = await openFixture()
