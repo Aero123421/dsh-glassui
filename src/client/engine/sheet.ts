@@ -3,10 +3,18 @@
  * and one rule per refraction filter. It is the only stylesheet the client
  * half writes at runtime, and it is removed on shutdown.
  */
-import { ATTR_EXCLUDED, ATTR_FLAT, ATTR_LENS, ATTR_OWNED, ATTR_RAW, ATTR_SURFACE } from '../../shared/dom.ts'
+import {
+  ATTR_ADJUSTING,
+  ATTR_EXCLUDED,
+  ATTR_FLAT,
+  ATTR_LENS,
+  ATTR_OWNED,
+  ATTR_RAW,
+  ATTR_SURFACE,
+} from '../../shared/dom.ts'
 import type { Rgba } from '../../shared/color.ts'
 import { formatColor } from '../../shared/color.ts'
-import { BODY, INCLUDED, ROOT } from '../../shared/stylesheet.ts'
+import { INCLUDED, ROOT } from '../../shared/stylesheet.ts'
 import { DARK_ATTRIBUTE, FILL_TOKENS, type FillKey } from '../../shared/tokens.ts'
 
 /**
@@ -30,7 +38,7 @@ export function nudgeRules(nudged: ReadonlyMap<FillKey, Rgba>, dark: boolean): s
  */
 export function lensRule(id: number): string {
   return (
-    `${BODY} [${ATTR_SURFACE}]${INCLUDED}[${ATTR_LENS}="${id}"]:not([${ATTR_SURFACE}="backdrop"]):not([${ATTR_FLAT}]) {\n` +
+    `${ROOT}:not([${ATTR_ADJUSTING}]) body [${ATTR_SURFACE}]${INCLUDED}[${ATTR_LENS}="${id}"]:not([${ATTR_SURFACE}="backdrop"]):not([${ATTR_FLAT}]) {\n` +
     `  backdrop-filter: url(#glassui-lens-${id}) saturate(180%) brightness(1.04);\n}`
   )
 }

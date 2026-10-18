@@ -1,4 +1,4 @@
-/*! dsh-glassui 0.2.3 | MIT License | https://github.com/Aero123421/dsh-glassui#readme */
+/*! dsh-glassui 0.2.4 | MIT License | https://github.com/Aero123421/dsh-glassui#readme */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -2393,11 +2393,6 @@ function retainInstall(promise) {
   void promise.then(release, release);
   return promise;
 }
-function removalAccepted(result) {
-  return Boolean(
-    result && !result.error && (result.application === "applied" || result.application === "restart-required")
-  );
-}
 function failedInstall(code = "operation-error") {
   return {
     changed: false,
@@ -2845,16 +2840,6 @@ async function reinstallPrevious(manager, previous, hooks) {
   const listed = await installedCopy(manager);
   return { state: classifyRestore(restored, previous, listed), requestId };
 }
-async function restoreIfMissing(manager, installed, previous, hooks) {
-  const source = previous?.source;
-  if (typeof source !== "string" || source === "") return void 0;
-  if (installed?.error?.code === "already-installed") return void 0;
-  const outcome = installed?.application;
-  if (outcome !== "failed" && outcome !== "cancelled" && outcome !== "overridden") return void 0;
-  const listed = await installedCopy(manager);
-  if (!listed.known || listed.row) return void 0;
-  return reinstallPrevious(manager, previous, hooks);
-}
 function settleRemoval(operation, runtimeVersion) {
   if (operation.restore === "ok") {
     operation.status = "failed";
@@ -2885,65 +2870,6 @@ function settleRemoval(operation, runtimeVersion) {
     operation.status = "unknown";
     operation.reason = "reinstall";
   }
-}
-async function rememberRemoval(hooks) {
-  if (typeof hooks?.onRemoved === "function") await hooks.onRemoved();
-}
-async function installRelease(manager, spec, options, previous, hooks) {
-  const installed = await manager.installBundle(spec, options);
-  if (installed?.error?.code !== "already-installed" || typeof manager.removeBundle !== "function") {
-    return { result: installed, removed: false };
-  }
-  let removed;
-  try {
-    removed = await manager.removeBundle(PACKAGE);
-  } catch {
-    removed = failedInstall();
-  }
-  if (removed?.error?.code === "stop-profile") {
-    const listed = await installedCopy(manager);
-    if (listed.known && !listed.row) {
-      await rememberRemoval(hooks);
-      return removalNeedsRestore(manager, removed, previous, hooks);
-    }
-    try {
-      return { result: await manager.installBundle(spec, options), removed: false };
-    } catch {
-      return { result: failedInstall(), removed: false };
-    }
-  }
-  if (!removalAccepted(removed)) {
-    const listed = await installedCopy(manager);
-    if (!listed.known) return { result: removed ?? installed, removed: true, restore: "unconfirmed" };
-    if (!listed.row) {
-      await rememberRemoval(hooks);
-      return removalNeedsRestore(manager, removed ?? installed, previous, hooks);
-    }
-    return { result: removed ?? installed, removed: false };
-  }
-  await rememberRemoval(hooks);
-  let result;
-  try {
-    result = await manager.installBundle(spec, options);
-  } catch {
-    result = failedInstall();
-  }
-  const restore = await restoreIfMissing(manager, result, previous, hooks);
-  return {
-    result,
-    removed: true,
-    removalProven: true,
-    ...restore ? { restore: restore.state, restoreRequestId: restore.requestId } : {}
-  };
-}
-async function removalNeedsRestore(manager, result, previous, hooks) {
-  const restore = await reinstallPrevious(manager, previous, hooks);
-  return {
-    result,
-    removed: true,
-    removalProven: true,
-    ...restore ? { restore: restore.state, restoreRequestId: restore.requestId } : {}
-  };
 }
 var PluginUpdates = class {
   constructor({ manager, profileDir, runtimeVersion, isBusy = () => false, fetcher = fetch, version }) {
@@ -3113,7 +3039,7 @@ var PluginUpdates = class {
       const latest = await this.capability();
       if (latest.bundle.source !== before.bundle.source || latest.bundle.enabled !== before.bundle.enabled || this.isBusy() || this.closed)
         throw new Error("busy");
-      const spec = latest.source === "github" ? `github:${REPOSITORY}#${candidate.tag}` : path;
+      const spec = path;
       operation.status = "installing";
       await this.save(operation);
       if (this.closed || this.isBusy()) throw new Error("busy");
@@ -3134,55 +3060,16 @@ var PluginUpdates = class {
         await this.save(operation);
       } catch {
       }
-      const outcome = await retainInstall(
-        installRelease(
-          manager,
-          spec,
-          {
-            enabled: final.bundle.enabled,
-            requestId: operation.requestId,
-            saveExact: true
-          },
-          previous,
-          {
-            onRemoved: async () => {
-              operation.removedByUpdate = operation.requestId;
-              if (typeof operation.removedAt !== "number") operation.removedAt = Date.now();
-              appendReceipt(operation, {
-                kind: "removed-by-update",
-                id: operation.requestId,
-                at: operation.removedAt
-              });
-              try {
-                await this.save(operation);
-              } catch {
-              }
-            },
-            onRestoreRequest: async (requestId, previousVersion) => {
-              operation.restoreRequestId = requestId;
-              operation.previousSource = previous.source;
-              operation.previousEnabled = previous.enabled;
-              if (typeof previousVersion === "string" && previousVersion !== "")
-                operation.previousVersion = previousVersion;
-              try {
-                await this.save(operation);
-              } catch {
-              }
-            }
-          }
-        )
+      const result = await retainInstall(
+        manager.installBundle(spec, {
+          enabled: final.bundle.enabled,
+          requestId: operation.requestId,
+          saveExact: true
+        })
       );
-      operation.result = safeResult(outcome.result);
-      if (outcome.removalProven) {
-        operation.removedByUpdate = operation.requestId;
-        if (typeof operation.removedAt !== "number") operation.removedAt = Date.now();
-        appendReceipt(operation, {
-          kind: "removed-by-update",
-          id: operation.requestId,
-          at: operation.removedAt
-        });
-      }
-      const application = outcome.result?.application;
+      operation.result = safeResult(result);
+      if (result?.error?.code === "already-installed") operation.reason = "manual-update";
+      const application = result?.application;
       if (application === "applied" || application === "restart-required") {
         operation.recordedAt = Date.now();
         appendReceipt(operation, {
@@ -3192,8 +3079,6 @@ var PluginUpdates = class {
           application
         });
       }
-      if (outcome.restore) operation.restore = outcome.restore;
-      if (outcome.restoreRequestId) operation.restoreRequestId = outcome.restoreRequestId;
       if (previous.version) operation.previousVersion = previous.version;
       let installed;
       try {
@@ -3201,8 +3086,7 @@ var PluginUpdates = class {
       } catch {
         installed = void 0;
       }
-      operation.status = resultState(outcome.result, operation.version, this.version, installed);
-      if (outcome.removed && !outcome.restore && operation.status === "failed") operation.reinstall = true;
+      operation.status = resultState(result, operation.version, this.version, installed);
       settleRemoval(operation, this.version);
     } catch (error) {
       operation.status = managerInvoked ? "unknown" : "failed";
@@ -4061,6 +3945,7 @@ var ATTR_SIDEBAR = "data-glassui-sidebar";
 var ATTR_WALLPAPER = "data-glassui-wallpaper";
 var ATTR_STATIC_WALLPAPER = "data-glassui-static-wallpaper";
 var ATTR_HIGHLIGHTS = "data-glassui-highlights";
+var ATTR_ADJUSTING = "data-glassui-adjusting";
 var ATTR_RAW = "data-glassui-raw";
 var ATTR_SURFACE = "data-glassui-surface";
 var ATTR_FILL = "data-glassui-fill";
@@ -4083,6 +3968,7 @@ var FOOTPRINT_SELECTOR = [
   ATTR_WALLPAPER,
   ATTR_STATIC_WALLPAPER,
   ATTR_HIGHLIGHTS,
+  ATTR_ADJUSTING,
   ATTR_RAW,
   ATTR_SURFACE,
   ATTR_FILL,
@@ -4684,12 +4570,12 @@ var ROOT_PARAMETERS = {
   "--glassui-tt": `max(var(${VAR_TINT}), var(--glassui-floor))`,
   "--glassui-blur": "calc(6px + var(--glassui-tt) * 22px)",
   "--glassui-filter": "blur(var(--glassui-blur)) saturate(180%) brightness(1.04)",
-  "--glassui-fill-a": "calc(0.16 + var(--glassui-tt) * 0.62)",
-  "--glassui-dense-a": "calc(0.52 + var(--glassui-tt) * 0.42)",
-  "--glassui-smoke-a": "calc(0.5 + var(--glassui-tt) * 0.42)",
+  "--glassui-fill-a": "max(var(--glassui-floor), calc(0.16 + var(--glassui-tt) * 0.62))",
+  "--glassui-dense-a": "max(var(--glassui-floor), calc(0.52 + var(--glassui-tt) * 0.42))",
+  "--glassui-smoke-a": "max(var(--glassui-floor), calc(0.5 + var(--glassui-tt) * 0.42))",
   // Code blocks stay dense enough for syntax colors to keep their contrast.
-  "--glassui-code-a": "calc(0.4 + var(--glassui-tt) * 0.4)",
-  "--glassui-canvas-a": "calc(0.4 + var(--glassui-tt) * 0.5)",
+  "--glassui-code-a": "max(var(--glassui-floor), calc(0.4 + var(--glassui-tt) * 0.4))",
+  "--glassui-canvas-a": "max(var(--glassui-floor), calc(0.4 + var(--glassui-tt) * 0.5))",
   "--glassui-inset": "8px",
   // Matches the rx of the pane rim drawn by paneRim().
   "--glassui-radius": "18px"
@@ -4706,9 +4592,9 @@ var LIGHT = {
   "--glassui-light-a": 0.3,
   "--glassui-pane-rim": paneRim(0.95, 0.5, 0.1),
   [INLINE_CODE_TOKEN]: `rgb(245 246 248 / max(var(${VAR_INLINE_OPACITY}), var(--glassui-floor)))`,
-  [MENU_TOKENS.fill]: "rgb(250 250 252 / calc(0.5 + var(--glassui-tt) * 0.42))",
-  [MENU_TOKENS.overlayFill]: "rgb(250 250 252 / calc(0.86 + var(--glassui-tt) * 0.12))",
-  [MENU_TOKENS.groupHeader]: "rgb(250 250 252 / calc(0.8 + var(--glassui-tt) * 0.18))"
+  [MENU_TOKENS.fill]: "rgb(250 250 252 / max(var(--glassui-floor), calc(0.5 + var(--glassui-tt) * 0.42)))",
+  [MENU_TOKENS.overlayFill]: "rgb(250 250 252 / max(var(--glassui-floor), calc(0.86 + var(--glassui-tt) * 0.12)))",
+  [MENU_TOKENS.groupHeader]: "rgb(250 250 252 / max(var(--glassui-floor), calc(0.8 + var(--glassui-tt) * 0.18)))"
 };
 var DARK = {
   "--glassui-glass-rgb": "40 40 44",
@@ -4722,9 +4608,9 @@ var DARK = {
   "--glassui-light-a": 0.16,
   "--glassui-pane-rim": paneRim(0.4, 0.18, 0.5),
   [INLINE_CODE_TOKEN]: `rgb(48 48 54 / max(var(${VAR_INLINE_OPACITY}), var(--glassui-floor)))`,
-  [MENU_TOKENS.fill]: "rgb(44 44 48 / calc(0.46 + var(--glassui-tt) * 0.44))",
-  [MENU_TOKENS.overlayFill]: "rgb(44 44 48 / calc(0.86 + var(--glassui-tt) * 0.12))",
-  [MENU_TOKENS.groupHeader]: "rgb(44 44 48 / calc(0.8 + var(--glassui-tt) * 0.18))"
+  [MENU_TOKENS.fill]: "rgb(44 44 48 / max(var(--glassui-floor), calc(0.46 + var(--glassui-tt) * 0.44)))",
+  [MENU_TOKENS.overlayFill]: "rgb(44 44 48 / max(var(--glassui-floor), calc(0.86 + var(--glassui-tt) * 0.12)))",
+  [MENU_TOKENS.groupHeader]: "rgb(44 44 48 / max(var(--glassui-floor), calc(0.8 + var(--glassui-tt) * 0.18)))"
 };
 var SHARED = {
   "--glassui-rim": [
@@ -5014,9 +4900,9 @@ function readSettings(config) {
   });
 }
 function apply(ctx, config) {
-  applyUpdateRoutes(ctx, () => readSettings(config), "0.2.3");
+  applyUpdateRoutes(ctx, () => readSettings(config), "0.2.4");
   ctx.on("webserver/index-inject", (table) => {
-    table.push(...bootRows(readSettings(config), "0.2.3"));
+    table.push(...bootRows(readSettings(config), "0.2.4"));
   });
 }
 export {

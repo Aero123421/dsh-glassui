@@ -1,6 +1,7 @@
 /**
  * The "Glass UI" section of DSH's settings. Controls write through the
- * controller, which applies a change at once and saves it in the background.
+ * controller. Pointer sliders preview locally until release; other edits apply
+ * immediately. Accepted edits are saved in the background.
  * Styling uses DSH's own tokens (styles.css), so the page matches DSH and turns
  * to glass with the rest of the app.
  */
@@ -9,6 +10,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useRef,
   useState,
   useSyncExternalStore,
   type CSSProperties,
@@ -47,9 +49,105 @@ export interface SettingsPageProps {
   version: string
   /** Whether this browser can render refraction. */
   refractionSupported: boolean
+  /** DSH's public settings.section close action. */
+  close?: (() => void) | undefined
 }
 
 const DIAGNOSTICS_INTERVAL_MS = 1000
+function RangeControl(props: {
+  id: string
+  label: string
+  value: number
+  left: string
+  right: string
+  describedBy?: string
+  field: 'tint' | 'inlineCodeOpacity'
+  controller: GlassController
+  scheme: Scheme
+  previewLabel: string
+  hint: string
+}) {
+  const [draft, setDraft] = useState(props.value)
+  const value = useRef(props.value)
+  const dragging = useRef(false)
+  const release = useRef<(() => void) | undefined>(undefined)
+  const commit = (): void => props.controller.update(props.field, value.current)
+  const finish = (): void => {
+    if (!dragging.current) return
+    dragging.current = false
+    commit()
+    release.current?.()
+    release.current = undefined
+  }
+  const latestFinish = useRef(finish)
+  latestFinish.current = finish
+  useEffect(() => {
+    if (!dragging.current) {
+      value.current = props.value
+      setDraft(props.value)
+    }
+  }, [props.value])
+  useEffect(() => {
+    const end = (): void => latestFinish.current()
+    window.addEventListener('pointerup', end, true)
+    window.addEventListener('pointercancel', end, true)
+    window.addEventListener('blur', end)
+    return () => {
+      window.removeEventListener('pointerup', end, true)
+      window.removeEventListener('pointercancel', end, true)
+      window.removeEventListener('blur', end)
+      end()
+    }
+  }, [])
+  return (
+    <div className="glassui-slider" style={{ '--glassui-preview-opacity': draft / 100 } as CSSProperties}>
+      <div className="glassui-slider__head">
+        <label className="glassui-row__label" htmlFor={props.id}>
+          {props.label}
+        </label>
+        <span className="glassui-slider__value">{draft}</span>
+      </div>
+      <input
+        id={props.id}
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={draft}
+        className="glassui-range"
+        aria-describedby={props.describedBy}
+        style={{ '--glassui-progress': `${draft}%` } as CSSProperties}
+        onPointerDown={() => {
+          if (dragging.current) return
+          dragging.current = true
+          release.current = props.controller.beginAdjustment(() => latestFinish.current())
+        }}
+        onBlur={finish}
+        onChange={event => {
+          value.current = Number(event.target.value)
+          setDraft(value.current)
+          if (!dragging.current) commit()
+        }}
+      />
+      <div className="glassui-slider__ends" aria-hidden="true">
+        <span>{props.left}</span>
+        <span>{props.right}</span>
+      </div>
+      <div
+        className="glassui-slider-preview"
+        aria-label={props.previewLabel}
+        data-kind={props.field}
+        data-scheme={props.scheme}
+        style={{ backgroundImage: wallpaperImage('bay', props.scheme) }}
+      >
+        <span className="glassui-slider-preview__pane">
+          {props.field === 'inlineCodeOpacity' ? <code>path</code> : props.previewLabel}
+        </span>
+      </div>
+      <p className="glassui-note">{props.hint}</p>
+    </div>
+  )
+}
 
 function useController(controller: GlassController): ControllerState {
   return useSyncExternalStore(controller.subscribe, controller.getSnapshot)
@@ -486,6 +584,27 @@ export function SettingsPage(props: SettingsPageProps) {
     [props.controller],
   )
   const id = useId()
+  const mount = useRef<HTMLDivElement>(null)
+  const dialog = useRef<HTMLDivElement>(null)
+  const [narrow, setNarrow] = useState(false)
+  const close = useCallback(() => props.close?.(), [props.close])
+  useEffect(() => {
+    const element = mount.current
+    if (!element) return
+    const measure = (): void => setNarrow(element.clientWidth > 0 && element.clientWidth < 240)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  useEffect(() => {
+    if (!narrow) return
+    const previous = document.activeElement
+    dialog.current?.querySelector<HTMLButtonElement>('button')?.focus()
+    return () => {
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus()
+    }
+  }, [narrow])
   const { settings, diagnostics } = state
   const set = <K extends keyof GlassSettings>(field: K, value: GlassSettings[K]): void =>
     props.controller.update(field, value)
@@ -505,7 +624,7 @@ export function SettingsPage(props: SettingsPageProps) {
       ? t('status.forced')
       : t('status.off')
 
-  return (
+  const content = (
     <div className="glassui-page" data-testid="glassui-settings">
       <header className="glassui-hero">
         <div
@@ -542,29 +661,18 @@ export function SettingsPage(props: SettingsPageProps) {
             <Row label={t('enable.label')} hint={t('enable.hint')}>
               <Switch checked={settings.enabled} label={t('enable.label')} onChange={value => set('enabled', value)} />
             </Row>
-            <div className="glassui-slider">
-              <div className="glassui-slider__head">
-                <label className="glassui-row__label" htmlFor={`${id}-tint`}>
-                  {t('tint.label')}
-                </label>
-                <span className="glassui-slider__value">{settings.tint}</span>
-              </div>
-              <input
-                id={`${id}-tint`}
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={settings.tint}
-                className="glassui-range"
-                style={{ '--glassui-progress': `${settings.tint}%` } as CSSProperties}
-                onChange={event => set('tint', Number(event.target.value))}
-              />
-              <div className="glassui-slider__ends" aria-hidden="true">
-                <span>{t('tint.clear')}</span>
-                <span>{t('tint.tinted')}</span>
-              </div>
-            </div>
+            <RangeControl
+              id={`${id}-tint`}
+              label={t('tint.label')}
+              value={settings.tint}
+              left={t('tint.clear')}
+              right={t('tint.tinted')}
+              field="tint"
+              controller={props.controller}
+              scheme={scheme}
+              previewLabel={t('tint.preview')}
+              hint={t('slider.hint')}
+            />
           </div>
         </section>
 
@@ -622,30 +730,19 @@ export function SettingsPage(props: SettingsPageProps) {
               />
             </Row>
             <div className="glassui-inline-settings">
-              <div className="glassui-slider">
-                <div className="glassui-slider__head">
-                  <label className="glassui-row__label" htmlFor={`${id}-inline-opacity`}>
-                    {t('inline.label')}
-                  </label>
-                  <span className="glassui-slider__value">{settings.inlineCodeOpacity}</span>
-                </div>
-                <input
-                  id={`${id}-inline-opacity`}
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={settings.inlineCodeOpacity}
-                  className="glassui-range"
-                  aria-describedby={`${id}-inline-hint`}
-                  style={{ '--glassui-progress': `${settings.inlineCodeOpacity}%` } as CSSProperties}
-                  onChange={event => set('inlineCodeOpacity', Number(event.target.value))}
-                />
-                <div className="glassui-slider__ends" aria-hidden="true">
-                  <span>{t('tint.clear')}</span>
-                  <span>{t('inline.readable')}</span>
-                </div>
-              </div>
+              <RangeControl
+                id={`${id}-inline-opacity`}
+                label={t('inline.label')}
+                value={settings.inlineCodeOpacity}
+                left={t('tint.clear')}
+                right={t('inline.readable')}
+                describedBy={`${id}-inline-hint`}
+                field="inlineCodeOpacity"
+                controller={props.controller}
+                scheme={scheme}
+                previewLabel={t('inline.preview')}
+                hint={t('slider.hint')}
+              />
               <p className="glassui-note" id={`${id}-inline-hint`}>
                 {t('inline.hint')}
               </p>
@@ -706,6 +803,52 @@ export function SettingsPage(props: SettingsPageProps) {
       <footer className="glassui-footer">
         {state.save === 'saving' ? t('save.saving') : t('footer', { version: props.version })}
       </footer>
+    </div>
+  )
+  return (
+    <div className="glassui-mount" ref={mount}>
+      {narrow ? (
+        <div className="glassui-narrow">
+          <div
+            ref={dialog}
+            className="glassui-narrow__dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('title')}
+            onKeyDown={event => {
+              if (event.key === 'Escape') {
+                event.stopPropagation()
+                close()
+              }
+              if (event.key !== 'Tab') return
+              const elements = [
+                ...event.currentTarget.querySelectorAll<HTMLElement>(
+                  'button:not(:disabled),input:not(:disabled),a[href],textarea:not(:disabled)',
+                ),
+              ].filter(element => element.tabIndex >= 0 && element.getClientRects().length > 0)
+              const first = elements[0],
+                last = elements.at(-1)
+              if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault()
+                last?.focus()
+              } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault()
+                first?.focus()
+              }
+            }}
+          >
+            <div className="glassui-narrow__header">
+              <strong>{t('title')}</strong>
+              <button type="button" className="glassui-button" onClick={close}>
+                {t('settings.close')}
+              </button>
+            </div>
+            {content}
+          </div>
+        </div>
+      ) : (
+        content
+      )}
     </div>
   )
 }

@@ -23,6 +23,14 @@ if (!changelog.includes(`## [${version}]`)) {
   console.error(`CHANGELOG.md has no section for ${version}`)
   process.exit(1)
 }
+for (const filename of ['README.md', 'README.ja.md']) {
+  const readme = readFileSync(resolve(root, filename), 'utf8')
+  const pins = [...readme.matchAll(/github:Aero123421\/dsh-glassui#v([^\s`]+)/g)].map(match => match[1])
+  if (pins.length < 2 || pins.some(pin => pin !== version)) {
+    console.error(`${filename} installation pins do not match ${version}`)
+    process.exit(1)
+  }
+}
 const prerelease = version.includes('-')
 if (process.env.GITHUB_OUTPUT)
   appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\nprerelease=${prerelease}\n`)

@@ -71,6 +71,40 @@ async function settle(): Promise<void> {
 }
 
 describe('GlassController', () => {
+  it('commits a local slider draft before settling settings for an update', async () => {
+    const engine = new FakeEngine(),
+      form = new FakeForm()
+    const controller = new GlassController(engine)
+    form.ready({ tint: 35 })
+    controller.attach(form)
+    const finish = controller.beginAdjustment(() => {
+      controller.update('tint', 61)
+      finish()
+    })
+    const release = await controller.settleForUpdate()
+    assert.equal(controller.getSnapshot().settings.tint, 61)
+    assert.deepEqual(form.writes, [['tint', 61]])
+    assert.equal(controller.getSnapshot().save, 'saved')
+    release()
+    controller.dispose()
+  })
+  it('holds adjustment for concurrent controls and clears it on disposal', () => {
+    const states: boolean[] = []
+    const engine: EngineHandle = new FakeEngine()
+    engine.setAdjusting = on => states.push(on)
+    const controller = new GlassController(engine)
+    const first = controller.beginAdjustment(),
+      second = controller.beginAdjustment()
+    assert.deepEqual(states, [true])
+    first()
+    first()
+    assert.deepEqual(states, [true])
+    second()
+    assert.deepEqual(states, [true, false])
+    controller.beginAdjustment()
+    controller.dispose()
+    assert.deepEqual(states, [true, false, true, false])
+  })
   beforeEach(() => {
     mock.timers.reset()
   })

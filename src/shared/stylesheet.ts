@@ -107,12 +107,12 @@ const ROOT_PARAMETERS: Declarations = {
   '--glassui-tt': `max(var(${VAR_TINT}), var(--glassui-floor))`,
   '--glassui-blur': 'calc(6px + var(--glassui-tt) * 22px)',
   '--glassui-filter': 'blur(var(--glassui-blur)) saturate(180%) brightness(1.04)',
-  '--glassui-fill-a': 'calc(0.16 + var(--glassui-tt) * 0.62)',
-  '--glassui-dense-a': 'calc(0.52 + var(--glassui-tt) * 0.42)',
-  '--glassui-smoke-a': 'calc(0.5 + var(--glassui-tt) * 0.42)',
+  '--glassui-fill-a': 'max(var(--glassui-floor), calc(0.16 + var(--glassui-tt) * 0.62))',
+  '--glassui-dense-a': 'max(var(--glassui-floor), calc(0.52 + var(--glassui-tt) * 0.42))',
+  '--glassui-smoke-a': 'max(var(--glassui-floor), calc(0.5 + var(--glassui-tt) * 0.42))',
   // Code blocks stay dense enough for syntax colors to keep their contrast.
-  '--glassui-code-a': 'calc(0.4 + var(--glassui-tt) * 0.4)',
-  '--glassui-canvas-a': 'calc(0.4 + var(--glassui-tt) * 0.5)',
+  '--glassui-code-a': 'max(var(--glassui-floor), calc(0.4 + var(--glassui-tt) * 0.4))',
+  '--glassui-canvas-a': 'max(var(--glassui-floor), calc(0.4 + var(--glassui-tt) * 0.5))',
   '--glassui-inset': '8px',
   // Matches the rx of the pane rim drawn by paneRim().
   '--glassui-radius': '18px',
@@ -131,9 +131,9 @@ const LIGHT: Declarations = {
   '--glassui-light-a': 0.3,
   '--glassui-pane-rim': paneRim(0.95, 0.5, 0.1),
   [INLINE_CODE_TOKEN]: `rgb(245 246 248 / max(var(${VAR_INLINE_OPACITY}), var(--glassui-floor)))`,
-  [MENU_TOKENS.fill]: 'rgb(250 250 252 / calc(0.5 + var(--glassui-tt) * 0.42))',
-  [MENU_TOKENS.overlayFill]: 'rgb(250 250 252 / calc(0.86 + var(--glassui-tt) * 0.12))',
-  [MENU_TOKENS.groupHeader]: 'rgb(250 250 252 / calc(0.8 + var(--glassui-tt) * 0.18))',
+  [MENU_TOKENS.fill]: 'rgb(250 250 252 / max(var(--glassui-floor), calc(0.5 + var(--glassui-tt) * 0.42)))',
+  [MENU_TOKENS.overlayFill]: 'rgb(250 250 252 / max(var(--glassui-floor), calc(0.86 + var(--glassui-tt) * 0.12)))',
+  [MENU_TOKENS.groupHeader]: 'rgb(250 250 252 / max(var(--glassui-floor), calc(0.8 + var(--glassui-tt) * 0.18)))',
 }
 
 /** Dark palette. */
@@ -149,9 +149,9 @@ const DARK: Declarations = {
   '--glassui-light-a': 0.16,
   '--glassui-pane-rim': paneRim(0.4, 0.18, 0.5),
   [INLINE_CODE_TOKEN]: `rgb(48 48 54 / max(var(${VAR_INLINE_OPACITY}), var(--glassui-floor)))`,
-  [MENU_TOKENS.fill]: 'rgb(44 44 48 / calc(0.46 + var(--glassui-tt) * 0.44))',
-  [MENU_TOKENS.overlayFill]: 'rgb(44 44 48 / calc(0.86 + var(--glassui-tt) * 0.12))',
-  [MENU_TOKENS.groupHeader]: 'rgb(44 44 48 / calc(0.8 + var(--glassui-tt) * 0.18))',
+  [MENU_TOKENS.fill]: 'rgb(44 44 48 / max(var(--glassui-floor), calc(0.46 + var(--glassui-tt) * 0.44)))',
+  [MENU_TOKENS.overlayFill]: 'rgb(44 44 48 / max(var(--glassui-floor), calc(0.86 + var(--glassui-tt) * 0.12)))',
+  [MENU_TOKENS.groupHeader]: 'rgb(44 44 48 / max(var(--glassui-floor), calc(0.8 + var(--glassui-tt) * 0.18)))',
 }
 
 /** Values independent of the palette: the rim, the menu blur and the fill captures. */

@@ -80,6 +80,15 @@ export class Probes {
    * @returns watched and reserved values; undefined tokens read as {@link UNSET}.
    */
   raw(): RawFills {
+    // Append all cold probes before the first style read. Interleaving each
+    // append/read would repeatedly invalidate the whole page's cascade.
+    for (const token of [...Object.values(FILL_TOKENS), ...RESERVED_TOKENS]) {
+      this.probe(`bg:${token}`, element => (element.style.background = `var(${token})`))
+    }
+    for (const tier of ['panel', 'prominent', 'soft'] as const) {
+      this.probe(`sentinel:${tier}`, element => (element.style.color = ELEVATION_SENTINELS[tier]))
+    }
+    this.probe('menu-filter', element => element.style.setProperty('backdrop-filter', `var(${MENU_TOKENS.filter})`))
     const body = this.doc.body
     body.setAttribute(ATTR_RAW, '')
     try {

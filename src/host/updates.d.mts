@@ -2,8 +2,6 @@ import type { BundleInfo, ChangeResult, InstallBundleOptions } from '@deepseek-a
 export interface Manager {
   listBundles(): Promise<BundleInfo[]>
   installBundle(spec: string, options: InstallBundleOptions): Promise<ChangeResult>
-  /** Present when the host can remove a bundle. Required to recover from `already-installed`. */
-  removeBundle?(name: string): Promise<ChangeResult>
   waitForInstall(id: NonNullable<InstallBundleOptions['requestId']>): Promise<ChangeResult | null>
 }
 export type Status =
@@ -91,23 +89,6 @@ export function resultState(
   installed?: BundleInfo,
 ): Status
 export type RestoreState = 'ok' | 'failed' | 'pending' | 'cancelled' | 'cancelled-absent' | 'unconfirmed'
-export function installRelease(
-  manager: Manager,
-  spec: string,
-  options: InstallBundleOptions,
-  previous?: { source?: string; enabled?: boolean; version?: string },
-  hooks?: {
-    onRestoreRequest?: (requestId: string, previousVersion?: string) => void | Promise<void>
-    /** The removal is confirmed. The journal can record that this operation removed the package. */
-    onRemoved?: () => void | Promise<void>
-  },
-): Promise<{
-  result: ChangeResult
-  removed: boolean
-  removalProven?: boolean
-  restore?: RestoreState
-  restoreRequestId?: string
-}>
 export function settleRemoval(
   operation: {
     status?: string

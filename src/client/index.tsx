@@ -103,13 +103,14 @@ export function apply(ctx: ClientContext): void {
     child.slots.inject('settings.section', () =>
       child.slots.register(
         { name: 'settings.section', id: 'glassui', order: SETTINGS_ORDER, label: () => translate('title') },
-        () => (
+        props => (
           <SettingsPage
             controller={owner}
             updates={updates}
             locale={locale}
             version={version}
             refractionSupported={environment.refraction}
+            close={typeof props.close === 'function' ? (props.close as () => void) : undefined}
           />
         ),
       ),

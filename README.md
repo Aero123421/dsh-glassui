@@ -25,13 +25,13 @@
 
 ## Install
 
-Requires DSH `>=0.2.0-rc.2 <0.3.0-0`. DSH admits prereleases in that range, including 0.2.1-alpha.3 and later 0.2.x prereleases, and excludes 0.3.0 prereleases. An empty peer range, a wildcard (`*`, `x`, `>=0`), a range missing either end (`<0.3.0-0`, `<=0.2.9`, `<0.2.2`), or a range that leaves the running line (`>=0.0.0 <0.3.0-0`, `<99`, `^0`, or `<0.3.0` on 0.2) is treated as compatibility-unknown. Tested with 0.2.0-rc.2, 0.2.1-alpha.2, and 0.2.1-alpha.3.
+Requires DSH `>=0.2.0-rc.2 <0.3.0-0`. DSH admits prereleases in that range, including 0.2.1-alpha.3 and later 0.2.x prereleases, and excludes 0.3.0 prereleases. An empty peer range, a wildcard (`*`, `x`, `>=0`), a range missing either end (`<0.3.0-0`, `<=0.2.9`, `<0.2.2`), or a range that leaves the running line (`>=0.0.0 <0.3.0-0`, `<99`, `^0`, or `<0.3.0` on 0.2) is treated as compatibility-unknown. Browser-tested with 0.2.0-rc.2 and 0.2.1-rc.2 (`next`); token and API contracts also checked on 0.2.1-alpha.5 (`alpha`).
 
-1. In DSH Web, open **Plugins → Add plugin** and enter `github:Aero123421/dsh-glassui#v0.2.2`.
+1. In DSH Web, open **Plugins → Add plugin** and enter `github:Aero123421/dsh-glassui#v0.2.4`.
 2. Or install from a terminal:
 
    ```sh
-   dsh plugin --profile web add github:Aero123421/dsh-glassui#v0.2.2
+   dsh plugin --profile web add github:Aero123421/dsh-glassui#v0.2.4
    ```
 
 3. Restart DSH if it asks you to, then reload DSH Web. The glass is on by default; **Settings → Glass UI** has the controls.
@@ -42,7 +42,7 @@ To remove it, uninstall it from **Plugins** (or `dsh plugin --profile web remove
 
 ## Settings
 
-All settings apply live and are stored in your DSH profile, so they are also available on the Plugins page and in the configuration file.
+Settings are applied and stored in your DSH profile, so they are also available on the Plugins page and in the configuration file.
 
 | Setting                    | Default   |                                                                                                                                                                                                                                              |
 | -------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -57,6 +57,8 @@ All settings apply live and are stored in your DSH profile, so they are also ava
 | Pointer highlights         | on        | A soft light that follows the mouse across glass. Off on touch screens and with _reduce motion_.                                                                                                                                             |
 | Leave these elements alone | —         | CSS selectors of elements the plugin must not style, e.g. `.my-plugin-panel`.                                                                                                                                                                |
 
+Sliders preview immediately in their own sample while you drag. Release to apply the value across the page; keyboard edits apply immediately. This keeps dragging responsive without rebuilding every glass surface for each input.
+
 The settings page also shows a short diagnostic report (surfaces found, tokens missing, scan cost) with a copy button for bug reports.
 
 ### Wallpapers
@@ -67,13 +69,13 @@ _Live_ wallpapers move a few large layers on the compositor; nothing runs on the
 
 ## Plugin updates
 
-Settings → Glass UI shows the running version and **Check plugin update**. Checking and installing are separate actions. The updater flushes pending settings writes before installation and stops on refused saves or settings changed in another window. It keeps wallpaper, tint, exclusions and the bundle’s enabled state. Checking does not recreate the glass engine, and works with the material off.
+Settings → Glass UI shows the running version and **Check plugin update**. Checking and installing are separate actions. Before installing, pending settings writes are saved; refused writes and settings changed in another window stop the update.
 
-The Host checks a fixed GitHub stable release, DSH peer ranges, bounded downloads, SHA-256 and the archive’s package identity/version before delegating to DSH’s manager. GitHub installations advance to an explicit release tag; release tarballs remain tarballs in the profile’s `.dsh-glassui-updates/` directory. Custom development paths, missing managers and read-only profiles use the linked manual update. Pins are never changed to a floating latest spec; build scripts are not automatically approved.
+The Host checks a fixed GitHub stable release, DSH peer ranges, bounded downloads, SHA-256 and the archive manifest. It hands that exact verified tarball to DSH’s plugin manager, without removing the current plugin first. Settings and bundle ON/OFF are kept. Updates from both GitHub and release-tarball installations are pinned to the verified archive in the profile’s `.dsh-glassui-updates/` directory. Keep an archive while the profile references it. Development paths and read-only profiles use the linked manual update.
 
-On DSH 0.2.1-alpha.3 with HMR, `installBundle` of an already installed package fails with `already-installed` and does not change the profile. The updater then uses the same order as **Plugins → Update**: remove this plugin, then install the release, keeping the previous on/off state. Without HMR, including 0.2.1-alpha.2, removal of a running plugin is refused (`stop-profile`) and the updater installs over the current package, which waits for a restart. If the new install does not finish after a removal, the result stays unknown. A later check puts the previous version back only when the update record shows that this update removed it and nothing later applied or removed it. Removing the plugin yourself does not cause an automatic reinstall; Settings offers **Reinstall previous version**. A finished restart-required update is not installed again. Automatic reinstall does not start while another install may still be running, and it stops after repeated attempts. Settings can still reinstall after that limit. That reinstall takes the lock, checks that the package is still absent, and checks the saved source again. An expired restore lock is removed. The reinstall records the request id of that install, and reads the bundle list when an earlier request id has no result. Two restores at the same time install the previous version once. If this plugin has already seen the package installed and it is later missing, Settings offers the reinstall instead of doing it automatically. An install and removal that never showed up in a bundle list cannot be told apart from a removal this update has not restored, so that case still restores once. If a reinstall has started and its result is not known, a later check does not start another one; Settings offers **Reinstall previous version**. A record that cannot be read is set aside under its own name; the reinstall button and the Releases link remain available.
+An operation ID reconciles a lost response without installing again. The UI checks installed and running versions before reporting success, or asks for a Host restart when needed. A manager refusal leaves the current installation in place; use the manual update instructions rather than removing it.
 
-A saved operation ID reconciles a lost response without resending installation. Unknown results remain unknown. The UI confirms both installed and running versions before reporting success, and asks you to restart after current work when needed. Keep staged tarballs while the profile references them.
+**Updating from v0.2.3 or earlier:** stop DSH, run the install command above for v0.2.4, then start DSH and reload Web. This avoids the old updater’s remove-then-install path. Old recovery journals remain readable while the plugin is installed; if an old update already left the plugin absent, install it through Plugins or the CLI.
 
 ## For plugin authors
 

@@ -6,6 +6,16 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-10-18
+
+- スライダーのつまみ・数値・専用プレビューをドラッグに即時追従させ、画面全体への適用は離したときに1回行います。キーボード操作は即時適用、保存の300ms debounceは維持します。ドラッグ中は屈折とポインターハイライトを一時停止して負荷を抑えます。
+- 自己更新は検証済み tarball そのものを DSH の標準 manager で置き換え、現在のプラグインを先に削除しません。GitHub 導入も検証済みアーカイブへ固定し、設定と bundle の ON/OFF を維持します。旧版からは DSH を停止して CLI で更新してください。
+- OS の透明度低減・高コントラスト指定を最終的な背景不透明度の下限へ適用し、コード・メニュー・明示 material にも反映します。
+- data-state、aria-expanded、id などの属性を使う除外条件を動的変更に追従させます。
+- 長い会話の既存ガラスを独立した面ごとに再判定し、コードブロックの処理をフレーム間に分割します。初期 probe の書込み・読取りをまとめます。
+- 狭い設定欄では Glass UI の設定を広い領域に表示し、日本語とスライダーを読める幅に保ちます。
+- DSH 0.2.1-rc.2 を E2E の固定版にし、next チャンネルの互換性・夜間 E2E を追加します。README の導入タグを現行版へ揃えます。
+
 ## [0.2.3] - 2026-10-15
 
 PR #16 の変更です。自己更新失敗時の復元（#14）と peer 上限の `-0` 境界（#15）を直し、描画コストを削減します（#8・#9 関連）。旧ドラフト PR #13 の内容も含みます。
@@ -94,7 +104,8 @@ Includes the fixes prepared for v0.1.1, whose release checks failed before publi
 
 Supports DSH `>=0.2.0-rc.2 <0.3.0`.
 
-[Unreleased]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.0...v0.2.1

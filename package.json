@@ -1,6 +1,6 @@
 {
   "name": "dsh-glassui",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Liquid Glass-style theme and wallpapers for DeepSeek Harness Web.",
   "type": "module",
   "license": "MIT",
@@ -65,7 +65,7 @@
     "format:check": "prettier --check .",
     "test": "node --test --test-reporter=spec --disable-warning=ExperimentalWarning \"test/unit/*.test.ts\" \"test/unit/*.test.mjs\"",
     "test:integration": "node scripts/build.mjs && node --test --test-reporter=spec --test-concurrency=1 \"test/integration/*.test.mjs\"",
-    "test:e2e": "node --test-reporter=spec test/e2e/run.mjs",
+    "test:e2e": "node --test-reporter=spec test/e2e/run.mjs && node --test-reporter=spec test/e2e/update.mjs",
     "compat": "node scripts/compat.mjs",
     "pack": "node scripts/build.mjs && node scripts/pack.mjs",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm test && npm run build",
@@ -89,7 +89,7 @@
   },
   "glassui": {
     "e2e": {
-      "dsh": "0.2.1-alpha.2"
+      "dsh": "0.2.1-rc.2"
     }
   }
 }
