@@ -108,6 +108,9 @@ const ROOT_PARAMETERS: Declarations = {
   '--glassui-blur': 'calc(6px + var(--glassui-tt) * 22px)',
   '--glassui-filter': 'blur(var(--glassui-blur)) saturate(180%) brightness(1.04)',
   '--glassui-fill-a': 'max(var(--glassui-floor), calc(0.16 + var(--glassui-tt) * 0.62))',
+  // Composer only. 0.74 keeps the light placeholder at 4.5:1 on black at tint 0;
+  // the tint can still raise it, and other surfaces stay on --glassui-fill-a.
+  '--glassui-composer-a': 'max(0.74, var(--glassui-fill-a))',
   '--glassui-dense-a': 'max(var(--glassui-floor), calc(0.52 + var(--glassui-tt) * 0.42))',
   '--glassui-smoke-a': 'max(var(--glassui-floor), calc(0.5 + var(--glassui-tt) * 0.42))',
   // Code blocks stay dense enough for syntax colors to keep their contrast.
@@ -228,10 +231,27 @@ const PROPERTIES = [
   "@property --glassui-pane-size { syntax: '*'; inherits: false; }",
 ].join('\n')
 
+/**
+ * Composer placeholder colors while glass is on.
+ *
+ * DSH's caption gray stays under 4.5:1 once a light wallpaper shows through the
+ * composer, and the dark caption does the same on a light wallpaper. These
+ * replace only `[data-composer-placeholder]`; glass off restores DSH's color.
+ */
+function placeholderRules(): string[] {
+  return [
+    rule(`${BODY}:not([${DARK_ATTRIBUTE}]) [data-composer-placeholder]`, { color: '#4f5459' }),
+    rule(`${BODY_DARK} [data-composer-placeholder]`, { color: '#e6e8ec' }),
+  ]
+}
+
 function surfaceRules(): string[] {
   const rules: string[] = [
-    rule(`${S}[${ATTR_SURFACE}="sidebar"], ${S}[${ATTR_SURFACE}="composer"]`, {
+    rule(`${S}[${ATTR_SURFACE}="sidebar"]`, {
       '--glassui-pct': 'calc(var(--glassui-fill-a) * 100%)',
+    }),
+    rule(`${S}[${ATTR_SURFACE}="composer"]`, {
+      '--glassui-pct': 'calc(var(--glassui-composer-a) * 100%)',
     }),
     rule(`${S}[${ATTR_SURFACE}="panel"], ${S}[${ATTR_SURFACE}="menu"]`, {
       '--glassui-pct': 'calc(var(--glassui-dense-a) * 100%)',
@@ -338,7 +358,7 @@ function accessibilityRules(): string {
       rule(BODY, { '--glassui-edge': 'rgb(0 0 0 / 0.45)' }),
       rule(BODY_DARK, { '--glassui-edge': 'rgb(255 255 255 / 0.35)' }),
     ].join('\n')}\n}`,
-    `@media (prefers-reduced-transparency: reduce) {\n${rule(ROOT, { '--glassui-floor': 1 })}\n}`,
+    `@media (prefers-reduced-transparency: reduce) {\n${rule(ROOT, { '--glassui-floor': 1, '--glassui-filter': 'none' })}\n}`,
     // Without backdrop blur, translucent fills would put text over unblurred content.
     `@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {\n${rule(ROOT, { '--glassui-floor': 0.9 })}\n}`,
   ].join('\n')
@@ -364,6 +384,7 @@ export function buildStylesheet(): string {
       'box-shadow': 'var(--glassui-contained-rim), 0 16px 22px -33px var(--glassui-contact)',
     }),
     ...surfaceRules(),
+    ...placeholderRules(),
     ...materialRules(),
     ...wallpaperRules(),
     accessibilityRules(),

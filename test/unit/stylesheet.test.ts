@@ -184,4 +184,36 @@ describe('buildStylesheet', () => {
   it('is stable between calls', () => {
     assert.equal(buildStylesheet(), css)
   })
+
+  it('raises only the composer fill and darkens its placeholder while glass is on', () => {
+    assert.match(css, /--glassui-composer-a: max\(0\.74, var\(--glassui-fill-a\)\);/)
+    const composer = all.find(rule =>
+      rule.selectors.some(selector => selector.includes('[data-glassui-surface="composer"]')),
+    )
+    assert.ok(composer)
+    assert.match(composer.body, /--glassui-pct: calc\(var\(--glassui-composer-a\) \* 100%\);/)
+    const sidebar = all.find(rule =>
+      rule.selectors.some(selector => selector.includes('[data-glassui-surface="sidebar"]')),
+    )
+    assert.ok(sidebar)
+    assert.match(sidebar.body, /--glassui-pct: calc\(var\(--glassui-fill-a\) \* 100%\);/)
+    const light = all.find(rule => rule.body.includes('color: #4f5459;'))
+    const dark = all.find(rule => rule.body.includes('color: #e6e8ec;'))
+    assert.ok(light?.selectors.some(selector => selector.includes('[data-composer-placeholder]')))
+    assert.ok(dark?.selectors.some(selector => selector.includes('[data-composer-placeholder]')))
+    assert.ok(compare(specificity(light?.selectors[0] ?? ''), [0, 1, 0]) > 0)
+    assert.ok(compare(specificity(dark?.selectors[0] ?? ''), [0, 1, 0]) > 0)
+  })
+
+  it('removes backdrop blur for reduced transparency and keeps it for increased contrast', () => {
+    const reducedAt = css.indexOf('@media (prefers-reduced-transparency: reduce)')
+    const contrastAt = css.indexOf('@media (prefers-contrast: more)')
+    assert.ok(contrastAt !== -1 && reducedAt > contrastAt)
+    const reduced = css.slice(reducedAt, css.indexOf('}', css.indexOf('}', reducedAt) + 1) + 1)
+    const contrast = css.slice(contrastAt, reducedAt)
+    assert.match(reduced, /--glassui-floor: 1;/)
+    assert.match(reduced, /--glassui-filter: none;/)
+    assert.match(contrast, /--glassui-floor: 0\.85;/)
+    assert.doesNotMatch(contrast, /--glassui-filter: none/)
+  })
 })

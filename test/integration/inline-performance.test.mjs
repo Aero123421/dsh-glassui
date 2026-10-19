@@ -173,6 +173,17 @@ describe('inline-code material', () => {
         )
         const value = await background(f.page)
         assert.equal(value, alpha === '1' ? 'rgb(245, 246, 248)' : 'rgba(245, 246, 248, 0.85)')
+        const material = await f.page.evaluate(() => ({
+          filter: getComputedStyle(document.documentElement).getPropertyValue('--glassui-filter').trim(),
+          backdrop: getComputedStyle(document.getElementById('composer')).backdropFilter,
+        }))
+        if (name === 'prefers-reduced-transparency') {
+          assert.equal(material.filter, 'none')
+          assert.equal(material.backdrop, 'none')
+        } else {
+          assert.match(material.filter, /blur/)
+          assert.match(material.backdrop, /blur|url/)
+        }
       }
       await f.page.emulateMedia({ forcedColors: 'active' })
       await settle(f.page, 12)

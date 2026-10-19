@@ -6,6 +6,13 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-10-19
+
+- ガラスがオンのとき、入力欄のプレースホルダー文字色をライトは `#4f5459`、ダークは `#e6e8ec` にし、入力欄の塗り下限だけを 0.74 に上げました。ライトテーマで壁紙 Bay・白・灰 `#808080`・黒、透明度 0 と 35 の各組み合わせで、文字の芯が 4.5:1 以上になるようにします。ほかの面の塗りは従来の下限のままです。
+- 「透明度を下げる」では `--glassui-filter` を `none` にし、ぼかし半径を 0 にします。「コントラストを上げる」は従来どおり塗り下限 0.85 で、ぼかしは残します。
+- README の検証済み Chromium を英語・日本語とも 141 / 143 / 149 / 154 / 156 に揃えました。
+- 日本語の表示には dsh-japanese が必要です。このプラグインは辞書を登録するだけで、言語 `ja` は追加しません。
+
 ## [0.2.4] - 2026-10-18
 
 - スライダーのつまみ・数値・専用プレビューをドラッグに即時追従させ、画面全体への適用は離したときに1回行います。キーボード操作は即時適用、保存の300ms debounceは維持します。ドラッグ中は屈折とポインターハイライトを一時停止して負荷を抑えます。
@@ -104,7 +111,8 @@ Includes the fixes prepared for v0.1.1, whose release checks failed before publi
 
 Supports DSH `>=0.2.0-rc.2 <0.3.0`.
 
-[Unreleased]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.1...v0.2.2
