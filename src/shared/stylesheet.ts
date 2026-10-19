@@ -247,7 +247,9 @@ const PROPERTIES = [
 function composerTextRules(): string[] {
   // Two adjacent label spans: icon, name, chevron. The plan chip is one span
   // plus a text node, so it keeps DSH's accent color. The model button has
-  // aria-haspopup="menu" and is matched on its own.
+  // aria-haspopup="menu" and is matched on its own. Only its direct child
+  // spans are the model label and the effort word. The 1017 badge is a nested
+  // span in the label slot, so this rule leaves DSH's accent color on it.
   const permission = `[data-composer-card] button:not([aria-haspopup]):has(> span + span)`
   const model = `[data-composer-card] button:has([data-model-id])`
   const targets = (scope: string): string =>
@@ -257,7 +259,7 @@ function composerTextRules(): string[] {
       `${scope} ${permission} span`,
       `${scope} ${permission} svg`,
       `${scope} ${model}`,
-      `${scope} ${model} span`,
+      `${scope} ${model} > span`,
       `${scope} ${model} svg`,
     ].join(',\n')
   return [

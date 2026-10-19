@@ -4681,7 +4681,7 @@ function composerTextRules() {
     `${scope} ${permission} span`,
     `${scope} ${permission} svg`,
     `${scope} ${model}`,
-    `${scope} ${model} span`,
+    `${scope} ${model} > span`,
     `${scope} ${model} svg`
   ].join(",\n");
   return [

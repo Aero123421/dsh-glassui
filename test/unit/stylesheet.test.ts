@@ -204,7 +204,8 @@ describe('buildStylesheet', () => {
     for (const rule of [light, dark]) {
       assert.ok(rule.selectors.some(selector => selector.includes('[data-composer-placeholder]')))
       assert.ok(rule.selectors.some(selector => selector.includes('button:not([aria-haspopup]):has(> span + span)')))
-      assert.ok(rule.selectors.some(selector => selector.includes('button:has([data-model-id])')))
+      assert.ok(rule.selectors.some(selector => selector.includes('button:has([data-model-id]) > span')))
+      assert.ok(rule.selectors.every(selector => !selector.includes('button:has([data-model-id]) span')))
       for (const selector of rule.selectors) {
         assert.ok(selector.startsWith(ROOT), selector)
         assert.ok(compare(specificity(selector), [0, 1, 0]) > 0, selector)
