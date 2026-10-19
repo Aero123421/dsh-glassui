@@ -32,6 +32,13 @@ jobs:
       - run: npm run format:check
       - run: npm test
       - run: npm run build
+      - name: Distribution does not call addLanguage
+        run: |
+          command -v rg >/dev/null
+          if rg -n "addLanguage" src dist; then
+            echo "::error::addLanguage is in src or dist. Only dsh-japanese defines ja."
+            exit 1
+          fi
       - name: GitHub install bundle matches source
         run: git diff --exit-code -- dist
       - run: node scripts/pack.mjs
