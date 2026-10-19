@@ -104,7 +104,7 @@ Token overrides applied through DSH's theme API (`ctx.theme.overrideTokens`) are
 
 Without `backdrop-filter`, surfaces fall back to nearly opaque fills so text stays readable.
 
-While glass is on, the composer placeholder and the labels under the input (the permission mode, such as Workspace Write, and the model name) use plugin colors so those glyphs stay at least 4.5:1 against the glass. Turning glass off restores DSH's own colors. On DSH 0.2.1-rc.2 the restored light placeholder (`#adb2b8`) is 2.13:1 on white, and the dark caption on the dark input is 3.76:1 (an earlier reading of that caption was 3.61:1). This plugin leaves that glass-off rendering as DSH draws it.
+While glass is on, the composer placeholder and the labels under the input (the permission mode, such as Workspace Write, and the model name) use plugin colors so those glyphs stay at least 4.5:1 against the glass. Turning glass off restores DSH's own colors. On DSH 0.2.1-rc.2 the restored light placeholder (`#adb2b8`) is 2.13:1 on white, and the dark caption on the dark input is 3.76:1 (an earlier reading of that caption was 3.61:1). This plugin leaves that glass-off rendering as DSH draws it. If a later DSH release no longer matches these composer selectors, the plugin colors do not apply and DSH's own colors remain.
 
 ## How it works
 
