@@ -237,7 +237,7 @@ const PROPERTIES = [
  * DSH's caption and secondary grays fall under 4.5:1 when a wallpaper shows
  * through the composer. These replace the placeholder and the labels under the
  * input: the permission button (Workspace Write and the other presets) and the
- * model button (name and effort). Selectors use attributes DSH keeps stable,
+ * model button's name. Selectors use attributes DSH keeps stable,
  * not its hashed classes. The permission button has no title attribute on
  * 0.2.1-rc.2; it is the card button with icon, label and chevron spans and
  * without `aria-haspopup`. Glass off removes `data-glassui`, so DSH's colors
@@ -246,11 +246,10 @@ const PROPERTIES = [
  */
 function composerTextRules(): string[] {
   // Two adjacent label spans: icon, name, chevron. The plan chip is one span
-  // plus a text node, so it keeps DSH's accent color. The model button has
-  // aria-haspopup="menu" and is matched on its own. Only its direct child
-  // spans are the model label and the effort word. The 1017 badge is a nested
-  // span in the label slot, so this rule leaves DSH's accent color on it.
+  // plus a text node, so it keeps DSH's accent color.
   const permission = `[data-composer-card] button:not([aria-haspopup]):has(> span + span)`
+  // The model name is the span with data-model-id. The 1017 badge is a nested
+  // span inside that label, so it keeps DSH's accent color.
   const model = `[data-composer-card] button:has([data-model-id])`
   const targets = (scope: string): string =>
     [
@@ -259,7 +258,7 @@ function composerTextRules(): string[] {
       `${scope} ${permission} span`,
       `${scope} ${permission} svg`,
       `${scope} ${model}`,
-      `${scope} ${model} > span`,
+      `${scope} ${model} span[data-model-id]`,
       `${scope} ${model} svg`,
     ].join(',\n')
   return [
