@@ -232,16 +232,37 @@ const PROPERTIES = [
 ].join('\n')
 
 /**
- * Composer placeholder colors while glass is on.
+ * Composer text colors while glass is on.
  *
- * DSH's caption gray stays under 4.5:1 once a light wallpaper shows through the
- * composer, and the dark caption does the same on a light wallpaper. These
- * replace only `[data-composer-placeholder]`; glass off restores DSH's color.
+ * DSH's caption and secondary grays fall under 4.5:1 when a wallpaper shows
+ * through the composer. These replace the placeholder and the labels under the
+ * input: the permission button (Workspace Write and the other presets) and the
+ * model button (name and effort). Selectors use attributes DSH keeps stable,
+ * not its hashed classes. The permission button has no title attribute on
+ * 0.2.1-rc.2; it is the card button with icon, label and chevron spans and
+ * without `aria-haspopup`. Glass off removes `data-glassui`, so DSH's colors
+ * return. Dark `#c8ccd4` stays dimmer than typed text. A darker gray drops
+ * under 4.5:1 on a white wallpaper at tint 0, the lightest dark-theme composer.
  */
-function placeholderRules(): string[] {
+function composerTextRules(): string[] {
+  // Two adjacent label spans: icon, name, chevron. The plan chip is one span
+  // plus a text node, so it keeps DSH's accent color. The model button has
+  // aria-haspopup="menu" and is matched on its own.
+  const permission = `[data-composer-card] button:not([aria-haspopup]):has(> span + span)`
+  const model = `[data-composer-card] button:has([data-model-id])`
+  const targets = (scope: string): string =>
+    [
+      `${scope} [data-composer-placeholder]`,
+      `${scope} ${permission}`,
+      `${scope} ${permission} span`,
+      `${scope} ${permission} svg`,
+      `${scope} ${model}`,
+      `${scope} ${model} span`,
+      `${scope} ${model} svg`,
+    ].join(',\n')
   return [
-    rule(`${BODY}:not([${DARK_ATTRIBUTE}]) [data-composer-placeholder]`, { color: '#4f5459' }),
-    rule(`${BODY_DARK} [data-composer-placeholder]`, { color: '#e6e8ec' }),
+    rule(targets(`${BODY}:not([${DARK_ATTRIBUTE}])`), { color: '#4f5459' }),
+    rule(targets(BODY_DARK), { color: '#c8ccd4' }),
   ]
 }
 
@@ -384,7 +405,7 @@ export function buildStylesheet(): string {
       'box-shadow': 'var(--glassui-contained-rim), 0 16px 22px -33px var(--glassui-contact)',
     }),
     ...surfaceRules(),
-    ...placeholderRules(),
+    ...composerTextRules(),
     ...materialRules(),
     ...wallpaperRules(),
     accessibilityRules(),

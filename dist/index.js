@@ -4672,10 +4672,21 @@ var PROPERTIES = [
   "@property --glassui-pane { syntax: '*'; inherits: false; }",
   "@property --glassui-pane-size { syntax: '*'; inherits: false; }"
 ].join("\n");
-function placeholderRules() {
+function composerTextRules() {
+  const permission = `[data-composer-card] button:not([aria-haspopup]):has(> span + span)`;
+  const model = `[data-composer-card] button:has([data-model-id])`;
+  const targets = (scope) => [
+    `${scope} [data-composer-placeholder]`,
+    `${scope} ${permission}`,
+    `${scope} ${permission} span`,
+    `${scope} ${permission} svg`,
+    `${scope} ${model}`,
+    `${scope} ${model} span`,
+    `${scope} ${model} svg`
+  ].join(",\n");
   return [
-    rule(`${BODY}:not([${DARK_ATTRIBUTE}]) [data-composer-placeholder]`, { color: "#4f5459" }),
-    rule(`${BODY_DARK} [data-composer-placeholder]`, { color: "#e6e8ec" })
+    rule(targets(`${BODY}:not([${DARK_ATTRIBUTE}])`), { color: "#4f5459" }),
+    rule(targets(BODY_DARK), { color: "#c8ccd4" })
   ];
 }
 function surfaceRules() {
@@ -4810,7 +4821,7 @@ function buildStylesheet() {
       "box-shadow": "var(--glassui-contained-rim), 0 16px 22px -33px var(--glassui-contact)"
     }),
     ...surfaceRules(),
-    ...placeholderRules(),
+    ...composerTextRules(),
     ...materialRules(),
     ...wallpaperRules(),
     accessibilityRules(),
