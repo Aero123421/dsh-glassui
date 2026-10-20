@@ -2,8 +2,14 @@
 #   1. verifies the version, types, lint, tests and the integration suite,
 #   2. runs the E2E suite against the pinned DSH,
 #   3. packs the plugin tarball,
-#   4. publishes a GitHub Release with SHA256SUMS and a build provenance attestation.
-# Nothing is published to npm.
+#   4. creates a draft GitHub Release with SHA256SUMS and a build provenance attestation.
+# A tag push does not publish the release. The publish step reads
+# `gh release list --json tagName,isDraft`. A missing tag becomes a draft.
+# A draft gains the tarball and SHA256SUMS only when those names are absent.
+# A published release is left unchanged, including its assets, and the step
+# fails. A matching asset on a draft is also left in place and the step fails.
+# Notes, the draft or published state, and which release is latest stay as
+# they are. Nothing is published to npm.
 name: Release
 on:
   push:
@@ -144,7 +150,8 @@ jobs:
               if (start < 0) { console.log("See CHANGELOG.md."); process.exit(0) }
               const rest = text.slice(text.indexOf("\n", start) + 1);
               const end = rest.search(/^## \[/m);
-              console.log((end < 0 ? rest : rest.slice(0, end)).replace(/^\[.*\]: .*$/gm, "").trim());'
+              const section = (end < 0 ? rest : rest.slice(0, end)).replace(/^\[.*\]: .*$/gm, "").trim();
+              console.log(section);'
             echo
             echo "## Verify"
             echo
@@ -159,12 +166,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.verify.outputs.version }}
           PRERELEASE: ${{ needs.verify.outputs.prerelease }}
-        run: |
-          flags=""
-          [ "$PRERELEASE" = "true" ] && flags="--prerelease"
-          if gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "v${VERSION}" "release/dsh-glassui-${VERSION}.tgz" release/SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "v${VERSION}" --notes-file notes.md --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "v${VERSION}" "release/dsh-glassui-${VERSION}.tgz" release/SHA256SUMS --title "Glass UI ${VERSION}" --notes-file notes.md --verify-tag $flags --repo "$GITHUB_REPOSITORY"
-          fi
+        run: bash scripts/draft-release.sh

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { BODY, BODY_DARK, ROOT, buildStylesheet } from '../../src/shared/stylesheet.ts'
+import { BODY, BODY_DARK, INCLUDED, ROOT, buildStylesheet } from '../../src/shared/stylesheet.ts'
 import { FILL_KEYS, FILL_TOKENS, MENU_TOKENS } from '../../src/shared/tokens.ts'
 
 type Specificity = [number, number, number]
@@ -185,8 +185,17 @@ describe('buildStylesheet', () => {
     assert.equal(buildStylesheet(), css)
   })
 
-  it('raises only the composer fill and sets composer text colors while glass is on', () => {
-    assert.match(css, /--glassui-composer-a: max\(0\.74, var\(--glassui-fill-a\)\);/)
+  it('raises only the light composer fill and sets composer text colors while glass is on', () => {
+    const root = all.find(rule => rule.selectors.length === 1 && rule.selectors[0] === ROOT)
+    const lightPalette = all.find(rule => rule.selectors.length === 1 && rule.selectors[0] === `${BODY}${INCLUDED}`)
+    const darkPalette = all.find(rule => rule.selectors.length === 1 && rule.selectors[0] === `${BODY_DARK}${INCLUDED}`)
+    assert.ok(root)
+    assert.ok(lightPalette)
+    assert.ok(darkPalette)
+    assert.doesNotMatch(root.body, /--glassui-composer-a/)
+    assert.match(lightPalette.body, /--glassui-composer-a: max\(0\.74, var\(--glassui-fill-a\)\);/)
+    assert.match(darkPalette.body, /--glassui-composer-a: var\(--glassui-fill-a\);/)
+    assert.doesNotMatch(darkPalette.body, /0\.74/)
     const composer = all.find(rule =>
       rule.selectors.some(selector => selector.includes('[data-glassui-surface="composer"]')),
     )
@@ -198,11 +207,18 @@ describe('buildStylesheet', () => {
     assert.ok(sidebar)
     assert.match(sidebar.body, /--glassui-pct: calc\(var\(--glassui-fill-a\) \* 100%\);/)
     const light = all.find(rule => rule.body.includes('color: #4f5459;'))
-    const dark = all.find(rule => rule.body.includes('color: #c8ccd4;'))
+    const darkLabels = all.find(rule => rule.body.includes('color: #d4d8de;'))
+    const darkPlaceholder = all.find(rule => rule.body.includes('color: #b0b4ba;'))
     assert.ok(light)
-    assert.ok(dark)
-    for (const rule of [light, dark]) {
-      assert.ok(rule.selectors.some(selector => selector.includes('[data-composer-placeholder]')))
+    assert.ok(darkLabels)
+    assert.ok(darkPlaceholder)
+    assert.ok(light.selectors.some(selector => selector.includes('[data-composer-placeholder]')))
+    assert.deepEqual(
+      darkPlaceholder.selectors.filter(selector => selector.includes('[data-composer-placeholder]')).length,
+      1,
+    )
+    assert.ok(darkLabels.selectors.every(selector => !selector.includes('[data-composer-placeholder]')))
+    for (const rule of [light, darkLabels]) {
       assert.ok(rule.selectors.some(selector => selector.includes('button:not([aria-haspopup]):has(> span + span)')))
       assert.ok(rule.selectors.some(selector => selector.includes('button:has([data-model-id]) span[data-model-id]')))
       assert.ok(rule.selectors.every(selector => !selector.includes('button:has([data-model-id]) > span')))
@@ -212,13 +228,16 @@ describe('buildStylesheet', () => {
             !selector.includes('button:has([data-model-id]) span') || selector.includes('span[data-model-id]'),
         ),
       )
+    }
+    for (const rule of [light, darkLabels, darkPlaceholder]) {
       for (const selector of rule.selectors) {
         assert.ok(selector.startsWith(ROOT), selector)
         assert.ok(compare(specificity(selector), [0, 1, 0]) > 0, selector)
       }
     }
     assert.ok(light.selectors.every(selector => selector.includes(':not([data-ds-dark-theme])')))
-    assert.ok(dark.selectors.every(selector => selector.includes('body[data-ds-dark-theme]')))
+    assert.ok(darkLabels.selectors.every(selector => selector.includes('body[data-ds-dark-theme]')))
+    assert.ok(darkPlaceholder.selectors.every(selector => selector.includes('body[data-ds-dark-theme]')))
   })
 
   it('removes backdrop blur for reduced transparency and keeps it for increased contrast', () => {
