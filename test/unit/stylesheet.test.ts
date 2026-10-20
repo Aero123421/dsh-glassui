@@ -15,7 +15,7 @@ function specificity(selector: string): Specificity {
     result[2] += other[2]
   }
   while (rest.length > 0) {
-    const not = /^:(?:not|is)\(/.exec(rest)
+    const not = /^:(?:not|is|has)\(/.exec(rest)
     if (not) {
       let depth = 1
       let index = not[0].length
@@ -183,5 +183,53 @@ describe('buildStylesheet', () => {
 
   it('is stable between calls', () => {
     assert.equal(buildStylesheet(), css)
+  })
+
+  it('raises only the composer fill and sets composer text colors while glass is on', () => {
+    assert.match(css, /--glassui-composer-a: max\(0\.74, var\(--glassui-fill-a\)\);/)
+    const composer = all.find(rule =>
+      rule.selectors.some(selector => selector.includes('[data-glassui-surface="composer"]')),
+    )
+    assert.ok(composer)
+    assert.match(composer.body, /--glassui-pct: calc\(var\(--glassui-composer-a\) \* 100%\);/)
+    const sidebar = all.find(rule =>
+      rule.selectors.some(selector => selector.includes('[data-glassui-surface="sidebar"]')),
+    )
+    assert.ok(sidebar)
+    assert.match(sidebar.body, /--glassui-pct: calc\(var\(--glassui-fill-a\) \* 100%\);/)
+    const light = all.find(rule => rule.body.includes('color: #4f5459;'))
+    const dark = all.find(rule => rule.body.includes('color: #c8ccd4;'))
+    assert.ok(light)
+    assert.ok(dark)
+    for (const rule of [light, dark]) {
+      assert.ok(rule.selectors.some(selector => selector.includes('[data-composer-placeholder]')))
+      assert.ok(rule.selectors.some(selector => selector.includes('button:not([aria-haspopup]):has(> span + span)')))
+      assert.ok(rule.selectors.some(selector => selector.includes('button:has([data-model-id]) span[data-model-id]')))
+      assert.ok(rule.selectors.every(selector => !selector.includes('button:has([data-model-id]) > span')))
+      assert.ok(
+        rule.selectors.every(
+          selector =>
+            !selector.includes('button:has([data-model-id]) span') || selector.includes('span[data-model-id]'),
+        ),
+      )
+      for (const selector of rule.selectors) {
+        assert.ok(selector.startsWith(ROOT), selector)
+        assert.ok(compare(specificity(selector), [0, 1, 0]) > 0, selector)
+      }
+    }
+    assert.ok(light.selectors.every(selector => selector.includes(':not([data-ds-dark-theme])')))
+    assert.ok(dark.selectors.every(selector => selector.includes('body[data-ds-dark-theme]')))
+  })
+
+  it('removes backdrop blur for reduced transparency and keeps it for increased contrast', () => {
+    const reducedAt = css.indexOf('@media (prefers-reduced-transparency: reduce)')
+    const contrastAt = css.indexOf('@media (prefers-contrast: more)')
+    assert.ok(contrastAt !== -1 && reducedAt > contrastAt)
+    const reduced = css.slice(reducedAt, css.indexOf('}', css.indexOf('}', reducedAt) + 1) + 1)
+    const contrast = css.slice(contrastAt, reducedAt)
+    assert.match(reduced, /--glassui-floor: 1;/)
+    assert.match(reduced, /--glassui-filter: none;/)
+    assert.match(contrast, /--glassui-floor: 0\.85;/)
+    assert.doesNotMatch(contrast, /--glassui-filter: none/)
   })
 })

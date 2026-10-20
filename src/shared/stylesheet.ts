@@ -108,6 +108,9 @@ const ROOT_PARAMETERS: Declarations = {
   '--glassui-blur': 'calc(6px + var(--glassui-tt) * 22px)',
   '--glassui-filter': 'blur(var(--glassui-blur)) saturate(180%) brightness(1.04)',
   '--glassui-fill-a': 'max(var(--glassui-floor), calc(0.16 + var(--glassui-tt) * 0.62))',
+  // Composer only. 0.74 keeps the light placeholder at 4.5:1 on black at tint 0;
+  // the tint can still raise it, and other surfaces stay on --glassui-fill-a.
+  '--glassui-composer-a': 'max(0.74, var(--glassui-fill-a))',
   '--glassui-dense-a': 'max(var(--glassui-floor), calc(0.52 + var(--glassui-tt) * 0.42))',
   '--glassui-smoke-a': 'max(var(--glassui-floor), calc(0.5 + var(--glassui-tt) * 0.42))',
   // Code blocks stay dense enough for syntax colors to keep their contrast.
@@ -228,10 +231,49 @@ const PROPERTIES = [
   "@property --glassui-pane-size { syntax: '*'; inherits: false; }",
 ].join('\n')
 
+/**
+ * Composer text colors while glass is on.
+ *
+ * DSH's caption and secondary grays fall under 4.5:1 when a wallpaper shows
+ * through the composer. These replace the placeholder and the labels under the
+ * input: the permission button (Workspace Write and the other presets) and the
+ * model button's name. Selectors use attributes DSH keeps stable,
+ * not its hashed classes. The permission button has no title attribute on
+ * 0.2.1-rc.2; it is the card button with icon, label and chevron spans and
+ * without `aria-haspopup`. Glass off removes `data-glassui`, so DSH's colors
+ * return. Dark `#c8ccd4` stays dimmer than typed text. A darker gray drops
+ * under 4.5:1 on a white wallpaper at tint 0, the lightest dark-theme composer.
+ */
+function composerTextRules(): string[] {
+  // Two adjacent label spans: icon, name, chevron. The plan chip is one span
+  // plus a text node, so it keeps DSH's accent color.
+  const permission = `[data-composer-card] button:not([aria-haspopup]):has(> span + span)`
+  // The model name is the span with data-model-id. The 1017 badge is a nested
+  // span inside that label, so it keeps DSH's accent color.
+  const model = `[data-composer-card] button:has([data-model-id])`
+  const targets = (scope: string): string =>
+    [
+      `${scope} [data-composer-placeholder]`,
+      `${scope} ${permission}`,
+      `${scope} ${permission} span`,
+      `${scope} ${permission} svg`,
+      `${scope} ${model}`,
+      `${scope} ${model} span[data-model-id]`,
+      `${scope} ${model} svg`,
+    ].join(',\n')
+  return [
+    rule(targets(`${BODY}:not([${DARK_ATTRIBUTE}])`), { color: '#4f5459' }),
+    rule(targets(BODY_DARK), { color: '#c8ccd4' }),
+  ]
+}
+
 function surfaceRules(): string[] {
   const rules: string[] = [
-    rule(`${S}[${ATTR_SURFACE}="sidebar"], ${S}[${ATTR_SURFACE}="composer"]`, {
+    rule(`${S}[${ATTR_SURFACE}="sidebar"]`, {
       '--glassui-pct': 'calc(var(--glassui-fill-a) * 100%)',
+    }),
+    rule(`${S}[${ATTR_SURFACE}="composer"]`, {
+      '--glassui-pct': 'calc(var(--glassui-composer-a) * 100%)',
     }),
     rule(`${S}[${ATTR_SURFACE}="panel"], ${S}[${ATTR_SURFACE}="menu"]`, {
       '--glassui-pct': 'calc(var(--glassui-dense-a) * 100%)',
@@ -338,7 +380,7 @@ function accessibilityRules(): string {
       rule(BODY, { '--glassui-edge': 'rgb(0 0 0 / 0.45)' }),
       rule(BODY_DARK, { '--glassui-edge': 'rgb(255 255 255 / 0.35)' }),
     ].join('\n')}\n}`,
-    `@media (prefers-reduced-transparency: reduce) {\n${rule(ROOT, { '--glassui-floor': 1 })}\n}`,
+    `@media (prefers-reduced-transparency: reduce) {\n${rule(ROOT, { '--glassui-floor': 1, '--glassui-filter': 'none' })}\n}`,
     // Without backdrop blur, translucent fills would put text over unblurred content.
     `@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {\n${rule(ROOT, { '--glassui-floor': 0.9 })}\n}`,
   ].join('\n')
@@ -364,6 +406,7 @@ export function buildStylesheet(): string {
       'box-shadow': 'var(--glassui-contained-rim), 0 16px 22px -33px var(--glassui-contact)',
     }),
     ...surfaceRules(),
+    ...composerTextRules(),
     ...materialRules(),
     ...wallpaperRules(),
     accessibilityRules(),

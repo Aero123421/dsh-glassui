@@ -6,6 +6,14 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-10-19
+
+- ガラスがオンのとき、入力欄のプレースホルダーと、入力欄の下のラベル（権限モードとモデル名）の文字色をライトは `#4f5459`、ダークは `#c8ccd4` にし、入力欄の塗り下限だけを 0.74 に上げました。ライトとダーク、壁紙 Bay・白・灰 `#808080`・黒、透明度 0 と 35 の 16 条件で、DSH 0.2.1-rc.2 の画面上の文字ピクセルとその直下の背景が 4.5:1 以上です。ダークの `#c8ccd4` は入力した文字より暗いです。ほかの面の塗りは従来の下限のままです。ガラスをオフにすると DSH 本体の色に戻ります。同じ版の画面では、ライトのプレースホルダー `#adb2b8` が白の上で 2.13:1、ダークのキャプションが暗い入力欄 `(44, 44, 46)` の上で 3.76:1 です（以前の読みは 3.61:1）。このプラグインはそのガラスオフの表示は変えません。
+- プレースホルダーの色は `[data-composer-placeholder]` に当てます。この属性は DSH 0.2.1-rc.2 にあります。alpha 版では未確認です。属性が無いとき、または将来の DSH でこれらのセレクタが当たらないときは、この色は適用されず DSH の既定色のままです。ラベルは入力欄カード内の権限ボタンと、`data-model-id` を持つモデルボタンに当てます。
+- 「透明度を下げる」では `--glassui-filter` を `none` にし、ぼかし半径を 0 にします。「コントラストを上げる」は従来どおり塗り下限 0.85 で、ぼかしは残します。
+- README の検証済み Chromium を英語・日本語とも 141 / 143 / 149 / 154 / 156 に揃えました。
+- 日本語の表示には dsh-japanese が必要です。このプラグインは辞書を登録するだけで、言語 `ja` は追加しません。
+
 ## [0.2.4] - 2026-10-18
 
 - スライダーのつまみ・数値・専用プレビューをドラッグに即時追従させ、画面全体への適用は離したときに1回行います。キーボード操作は即時適用、保存の300ms debounceは維持します。ドラッグ中は屈折とポインターハイライトを一時停止して負荷を抑えます。
@@ -104,7 +112,8 @@ Includes the fixes prepared for v0.1.1, whose release checks failed before publi
 
 Supports DSH `>=0.2.0-rc.2 <0.3.0`.
 
-[Unreleased]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.1...v0.2.2

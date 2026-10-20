@@ -159,12 +159,12 @@ The Host declares the settings with DSH's schema library; every field is `volati
 
 ## Accessibility
 
-| Preference                     | Effect                                                  |
-| ------------------------------ | ------------------------------------------------------- |
-| `prefers-reduced-transparency` | Fills become fully opaque; no refraction or highlights. |
-| `prefers-contrast: more`       | Fills at least 85% opaque, stronger edges.              |
-| `prefers-reduced-motion`       | No pointer highlights.                                  |
-| `forced-colors: active`        | The plugin stays off entirely.                          |
-| No `backdrop-filter` support   | Fills at least 90% opaque.                              |
+| Preference                     | Effect                                                                            |
+| ------------------------------ | --------------------------------------------------------------------------------- |
+| `prefers-reduced-transparency` | Fills become fully opaque; backdrop blur is removed; no refraction or highlights. |
+| `prefers-contrast: more`       | Fills at least 85% opaque, stronger edges.                                        |
+| `prefers-reduced-motion`       | No pointer highlights.                                                            |
+| `forced-colors: active`        | The plugin stays off entirely.                                                    |
+| No `backdrop-filter` support   | Fills at least 90% opaque.                                                        |
 
 Code blocks are a denser glass (at least 54% opaque at the default tint) without sheen or pointer light, and can be kept solid. Inline code, message bubbles and the other reserved fills keep their exact colors.

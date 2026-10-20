@@ -1,4 +1,4 @@
-/*! dsh-glassui 0.2.4 | MIT License | https://github.com/Aero123421/dsh-glassui#readme */
+/*! dsh-glassui 0.2.5 | MIT License | https://github.com/Aero123421/dsh-glassui#readme */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -4571,6 +4571,9 @@ var ROOT_PARAMETERS = {
   "--glassui-blur": "calc(6px + var(--glassui-tt) * 22px)",
   "--glassui-filter": "blur(var(--glassui-blur)) saturate(180%) brightness(1.04)",
   "--glassui-fill-a": "max(var(--glassui-floor), calc(0.16 + var(--glassui-tt) * 0.62))",
+  // Composer only. 0.74 keeps the light placeholder at 4.5:1 on black at tint 0;
+  // the tint can still raise it, and other surfaces stay on --glassui-fill-a.
+  "--glassui-composer-a": "max(0.74, var(--glassui-fill-a))",
   "--glassui-dense-a": "max(var(--glassui-floor), calc(0.52 + var(--glassui-tt) * 0.42))",
   "--glassui-smoke-a": "max(var(--glassui-floor), calc(0.5 + var(--glassui-tt) * 0.42))",
   // Code blocks stay dense enough for syntax colors to keep their contrast.
@@ -4669,10 +4672,30 @@ var PROPERTIES = [
   "@property --glassui-pane { syntax: '*'; inherits: false; }",
   "@property --glassui-pane-size { syntax: '*'; inherits: false; }"
 ].join("\n");
+function composerTextRules() {
+  const permission = `[data-composer-card] button:not([aria-haspopup]):has(> span + span)`;
+  const model = `[data-composer-card] button:has([data-model-id])`;
+  const targets = (scope) => [
+    `${scope} [data-composer-placeholder]`,
+    `${scope} ${permission}`,
+    `${scope} ${permission} span`,
+    `${scope} ${permission} svg`,
+    `${scope} ${model}`,
+    `${scope} ${model} span[data-model-id]`,
+    `${scope} ${model} svg`
+  ].join(",\n");
+  return [
+    rule(targets(`${BODY}:not([${DARK_ATTRIBUTE}])`), { color: "#4f5459" }),
+    rule(targets(BODY_DARK), { color: "#c8ccd4" })
+  ];
+}
 function surfaceRules() {
   const rules = [
-    rule(`${S}[${ATTR_SURFACE}="sidebar"], ${S}[${ATTR_SURFACE}="composer"]`, {
+    rule(`${S}[${ATTR_SURFACE}="sidebar"]`, {
       "--glassui-pct": "calc(var(--glassui-fill-a) * 100%)"
+    }),
+    rule(`${S}[${ATTR_SURFACE}="composer"]`, {
+      "--glassui-pct": "calc(var(--glassui-composer-a) * 100%)"
     }),
     rule(`${S}[${ATTR_SURFACE}="panel"], ${S}[${ATTR_SURFACE}="menu"]`, {
       "--glassui-pct": "calc(var(--glassui-dense-a) * 100%)"
@@ -4774,7 +4797,7 @@ ${[
     ].join("\n")}
 }`,
     `@media (prefers-reduced-transparency: reduce) {
-${rule(ROOT2, { "--glassui-floor": 1 })}
+${rule(ROOT2, { "--glassui-floor": 1, "--glassui-filter": "none" })}
 }`,
     // Without backdrop blur, translucent fills would put text over unblurred content.
     `@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -4798,6 +4821,7 @@ function buildStylesheet() {
       "box-shadow": "var(--glassui-contained-rim), 0 16px 22px -33px var(--glassui-contact)"
     }),
     ...surfaceRules(),
+    ...composerTextRules(),
     ...materialRules(),
     ...wallpaperRules(),
     accessibilityRules(),
@@ -4900,9 +4924,9 @@ function readSettings(config) {
   });
 }
 function apply(ctx, config) {
-  applyUpdateRoutes(ctx, () => readSettings(config), "0.2.4");
+  applyUpdateRoutes(ctx, () => readSettings(config), "0.2.5");
   ctx.on("webserver/index-inject", (table) => {
-    table.push(...bootRows(readSettings(config), "0.2.4"));
+    table.push(...bootRows(readSettings(config), "0.2.5"));
   });
 }
 export {

@@ -168,6 +168,20 @@ export function validSelector(doc: Document, selector: string): string | undefin
 /** A window with its constructors (`MutationObserver`, `Element`, …). */
 export type PageWindow = Window & typeof globalThis
 
+/**
+ * Backdrop blur radius in CSS pixels.
+ * Reduced transparency removes it. Increased contrast still uses at least 0.85 of the tint range.
+ * @param tintPercent - glass tint, 0–100.
+ * @param reducedTransparency - `prefers-reduced-transparency: reduce`.
+ * @param increasedContrast - `prefers-contrast: more`.
+ * @returns the radius. `0` when reduced transparency is on, even if contrast is increased.
+ */
+export function blurRadiusPx(tintPercent: number, reducedTransparency: boolean, increasedContrast: boolean): number {
+  if (reducedTransparency) return 0
+  const tint = tintPercent / 100
+  return 6 + Math.max(tint, increasedContrast ? 0.85 : 0) * 22
+}
+
 /** Discovers surfaces and keeps the page's glass in step with the settings. */
 export class GlassEngine {
   private readonly win: PageWindow
@@ -435,8 +449,7 @@ export class GlassEngine {
   // ---- presentation ------------------------------------------------------
 
   private blurPx(): number {
-    const tint = (this.settings?.tint ?? 35) / 100
-    return 6 + Math.max(tint, this.env.reducedTransparency() ? 1 : 0, this.env.increasedContrast() ? 0.85 : 0) * 22
+    return blurRadiusPx(this.settings?.tint ?? 35, this.env.reducedTransparency(), this.env.increasedContrast())
   }
 
   private scheme(): 'light' | 'dark' {
