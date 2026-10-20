@@ -22,12 +22,18 @@ const HIGH: Record<Scheme, Rgb> = {
   light: [173, 178, 184],
   dark: [129, 133, 140],
 }
-/** 0.2.5 and 0.2.6 model name. 0.2.4 used DSH's secondary gray. */
+/**
+ * Model name, placeholder, and permission label share one ink.
+ * 0.2.4 used DSH's secondary gray. 0.2.6 dark `#d4d8de` is lighter than that
+ * gray and darker than typed text `#f3f4f6`.
+ */
 const NAME: Record<Era, Record<Scheme, Rgb>> = {
   '0.2.4': { light: [97, 102, 107], dark: [207, 211, 214] },
   '0.2.5': { light: [79, 84, 89], dark: [200, 204, 212] },
-  '0.2.6': { light: [79, 84, 89], dark: [200, 204, 212] },
+  '0.2.6': { light: [79, 84, 89], dark: [212, 216, 222] },
 }
+/** Dark typed text, from the fixture's `--dsw-alias-label-primary`. */
+const DARK_TYPED: Rgb = [0xf3, 0xf4, 0xf6]
 const ACCENT: Record<Scheme, Rgb> = {
   light: [65, 118, 230],
   dark: [122, 170, 255],
@@ -208,22 +214,59 @@ describe('composer contrast across the 16 conditions', () => {
     assert.equal(darker.name.toFixed(2), '1.96')
   })
 
-  it('drops the model-name minimum below 5.32 and below 4.76 on dark white', () => {
-    let minimum = Number.POSITIVE_INFINITY
-    let where = ''
+  it('keeps dark model name, placeholder, and labels at or above 0.2.4', () => {
+    assert.deepEqual(NAME['0.2.6'].dark, [0xd4, 0xd8, 0xde])
+    assert.ok(luminance(NAME['0.2.6'].dark) < luminance(DARK_TYPED))
+    assert.ok(luminance(NAME['0.2.6'].dark) >= luminance(NAME['0.2.4'].dark))
+    const expected: Record<string, { next: string; previous: string }> = {
+      '0 bay': { next: '6.18', previous: '5.87' },
+      '0 white': { next: '2.17', previous: '2.07' },
+      '0 gray': { next: '5.51', previous: '5.24' },
+      '0 black': { next: '13.53', previous: '12.85' },
+      '35 bay': { next: '8.27', previous: '7.86' },
+      '35 white': { next: '4.56', previous: '4.34' },
+      '35 gray': { next: '7.73', previous: '7.34' },
+      '35 black': { next: '12.40', previous: '11.78' },
+    }
+    for (const sample of MEASURED.filter(item => item.scheme === 'dark')) {
+      const ground = surface('dark', sample.tint, sample.background, '0.2.6')
+      const name = contrast(NAME['0.2.6'].dark, ground)
+      const previous = contrast(NAME['0.2.4'].dark, ground)
+      const label = `${sample.tint} ${sample.wallpaper}`
+      assert.ok(name >= previous, `${label} ${name} < ${previous}`)
+      assert.equal(name.toFixed(2), expected[label]?.next, label)
+      assert.equal(previous.toFixed(2), expected[label]?.previous, label)
+    }
+    const white0 = contrast(NAME['0.2.6'].dark, surface('dark', 0, row('dark', 0, 'white').background, '0.2.6'))
+    const white35 = contrast(NAME['0.2.6'].dark, surface('dark', 35, row('dark', 35, 'white').background, '0.2.6'))
+    assert.ok(white0 < 4.5)
+    assert.ok(white35 >= 4.5)
+  })
+
+  it('keeps High under 3 on every light condition and on five dark conditions', () => {
     const under: string[] = []
     for (const sample of MEASURED) {
-      const name = ratios(sample.scheme, surface(sample.scheme, sample.tint, sample.background, '0.2.6'), '0.2.6').name
-      const label = `${sample.scheme} ${sample.tint} ${sample.wallpaper}`
-      if (name < minimum) {
-        minimum = name
-        where = label
-      }
-      if (name < 4.76) under.push(`${label} ${name.toFixed(2)}`)
+      const high = ratios(sample.scheme, surface(sample.scheme, sample.tint, sample.background, '0.2.6'), '0.2.6').high
+      if (high < 3) under.push(`${sample.scheme} ${sample.tint} ${sample.wallpaper} ${high.toFixed(2)}`)
     }
-    assert.equal(where, 'dark 0 white')
-    assert.equal(minimum.toFixed(2), '1.93')
-    assert.ok(minimum < 4.76)
-    assert.deepEqual(under.sort(), ['dark 0 white 1.93', 'dark 35 white 4.06'])
+    assert.deepEqual(under, [
+      'light 0 bay 1.87',
+      'light 0 white 2.13',
+      'light 0 gray 1.82',
+      'light 0 black 1.50',
+      'light 35 bay 1.96',
+      'light 35 white 2.13',
+      'light 35 gray 1.92',
+      'light 35 black 1.69',
+      'dark 0 bay 2.39',
+      'dark 0 white 1.19',
+      'dark 0 gray 2.13',
+      'dark 35 white 1.76',
+      'dark 35 gray 2.99',
+    ])
+    assert.equal(
+      ratios('dark', surface('dark', 35, row('dark', 35, 'bay').background, '0.2.6'), '0.2.6').high.toFixed(2),
+      '3.20',
+    )
   })
 })

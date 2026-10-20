@@ -1,19 +1,19 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 const workflow = readFileSync(new URL('../../.github/workflows/release.yml', import.meta.url), 'utf8')
-const script = readFileSync(new URL('../../scripts/publish-release.sh', import.meta.url), 'utf8')
+const script = readFileSync(new URL('../../scripts/draft-release.sh', import.meta.url), 'utf8')
 
 describe('release workflow', () => {
   it('creates a draft and does not edit or overwrite an existing release', () => {
     const step = workflow.slice(workflow.indexOf('- name: Publish'))
     assert.ok(step.startsWith('- name: Publish'))
-    assert.match(step, /bash scripts\/publish-release\.sh/)
+    assert.match(step, /bash scripts\/draft-release\.sh/)
     for (const source of [workflow, script]) {
       assert.doesNotMatch(source, /--clobber/)
       assert.doesNotMatch(source, /gh release edit/)
@@ -28,23 +28,26 @@ describe('release workflow', () => {
     assert.doesNotMatch(script, /not found/i)
   })
 
-  it('puts the same known issues in the changelog and the release notes', () => {
+  it('copies the 0.2.6 changelog section, including known issues, into the release notes', () => {
     const changelog = readFileSync(new URL('../../CHANGELOG.md', import.meta.url), 'utf8')
     const section = changelog.slice(changelog.indexOf('## [0.2.6]'), changelog.indexOf('## [0.2.5]'))
     const sentences = [
-      'light・黒の入力欄では High のコントラストが 1.50 で、3 未満です。dark・白・透明度 0 では `#c8ccd4` が 4.5 未満になりえます。DSH 本体の配色と glassui の塗りの組み合わせで起きます。',
+      '残るコントラストの不足は、DSH 本体の配色と glassui の塗りの組み合わせで起きます。',
       'pnpm 12 でプラグインを追加・更新すると、プロファイルの lockfile に公開から24時間たっていない依存が含まれている場合、`ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` で失敗することがあります。このとき pnpm がプロファイルの `node_modules` を空にし、DSH も元に戻さないため、**同じプロファイルのすべてのプラグインが読み込まれなくなります**。このプラグイン自体の不具合ではなく、どのプラグインを操作しても起こりえます。',
       'プラグインの追加・更新は pnpm 10 で行ってください。',
       '壊れたときは、pnpm 10 で `dsh plugin --profile web install` を実行すると元に戻ります。',
       'pnpm 11 では `ERR_PNPM_UNEXPECTED_STORE` で止まりますが、`node_modules` は壊れません。',
     ]
-    for (const sentence of sentences) {
-      assert.ok(section.includes(sentence), sentence.slice(0, 40))
-      assert.ok(workflow.includes(sentence), sentence.slice(0, 40))
-    }
+    for (const sentence of sentences) assert.ok(section.includes(sentence), sentence.slice(0, 40))
     assert.doesNotMatch(section, /この日以降/)
-    assert.doesNotMatch(workflow, /この日以降/)
-    assert.match(workflow, /section\.search\(\/\^### 既知の問題\/m\)/)
+    assert.doesNotMatch(workflow, /既知の問題/)
+    assert.doesNotMatch(workflow, /section\.search/)
+    const notes = releaseNotes()
+    const changes = notes.slice(notes.indexOf('## Changes'), notes.indexOf('## Verify'))
+    for (const sentence of sentences) assert.ok(changes.includes(sentence), sentence.slice(0, 40))
+    assert.equal(notes.match(/### 既知の問題（P3）/g)?.length, 1)
+    assert.equal(notes.match(/### 既知の問題（DSH 本体と pnpm 12）/g)?.length, 1)
+    assert.doesNotMatch(notes, /この日以降/)
   })
 
   it('creates a missing release as a draft', () => {
@@ -77,6 +80,10 @@ describe('release workflow', () => {
     const result = publish({ state: 'draft', assets: ['dsh-glassui-0.2.6.tgz'] })
     assert.equal(result.status, 1)
     assert.match(result.stderr, /already has dsh-glassui-0\.2\.6\.tgz/)
+    assert.match(
+      result.stderr,
+      /gh release delete-asset v0\.2\.6 dsh-glassui-0\.2\.6\.tgz --repo Aero123421\/dsh-glassui --yes/,
+    )
     assert.doesNotMatch(result.calls, /release upload/)
     assert.doesNotMatch(result.calls, /release create/)
   })
@@ -85,6 +92,7 @@ describe('release workflow', () => {
     const result = publish({ state: 'draft', assets: ['SHA256SUMS'] })
     assert.equal(result.status, 1)
     assert.match(result.stderr, /already has SHA256SUMS/)
+    assert.match(result.stderr, /gh release delete-asset v0\.2\.6 SHA256SUMS --repo Aero123421\/dsh-glassui --yes/)
     assert.doesNotMatch(result.calls, /release upload/)
   })
 
@@ -109,6 +117,32 @@ describe('release workflow', () => {
     assert.match(result.stderr, /release not found/)
   })
 })
+
+function leadingSpaces(line: string): number {
+  let count = 0
+  while (line[count] === ' ') count += 1
+  return count
+}
+
+function releaseNotes(): string {
+  const start = workflow.indexOf('- name: Release notes')
+  const run = workflow.indexOf('run: |', start)
+  const next = workflow.indexOf('\n      - name:', run)
+  const body = workflow.slice(run + 'run: |'.length, next)
+  const lines = body.split('\n').filter(line => line.trim().length > 0)
+  const indent = Math.min(...lines.map(leadingSpaces))
+  const shell = `${lines.map(line => line.slice(indent)).join('\n')}\n`
+  const root = fileURLToPath(new URL('../..', import.meta.url))
+  const result = spawnSync('bash', ['-c', shell], {
+    cwd: root,
+    env: { ...process.env, VERSION: '0.2.6', REPO: 'Aero123421/dsh-glassui' },
+    encoding: 'utf8',
+  })
+  assert.equal(result.status, 0, result.stderr)
+  const notes = readFileSync(join(root, 'notes.md'), 'utf8')
+  unlinkSync(join(root, 'notes.md'))
+  return notes
+}
 
 function publish(input: {
   state: 'absent' | 'draft' | 'published' | 'missing-draft-field'
@@ -152,7 +186,7 @@ process.exit(1)
 `,
   )
   chmodSync(gh, 0o755)
-  const result = spawnSync('bash', ['scripts/publish-release.sh'], {
+  const result = spawnSync('bash', ['scripts/draft-release.sh'], {
     cwd: fileURLToPath(new URL('../..', import.meta.url)),
     env: {
       ...process.env,

@@ -244,8 +244,9 @@ const PROPERTIES = [
  * not its hashed classes. The permission button has no title attribute on
  * 0.2.1-rc.2; it is the card button with icon, label and chevron spans and
  * without `aria-haspopup`. Glass off removes `data-glassui`, so DSH's colors
- * return. Dark `#c8ccd4` stays dimmer than typed text. The dark composer has no
- * 0.74 fill floor, so on a white wallpaper at tint 0 this gray is under 4.5:1.
+ * return. Dark `#d4d8de` stays dimmer than typed text (`#f3f4f6`) and is at least
+ * as light as DSH's secondary gray `#cfd3d6`. The dark composer has no 0.74 fill
+ * floor. On a white wallpaper this gray is 2.17:1 at tint 0 and 4.56:1 at tint 35.
  */
 function composerTextRules(): string[] {
   // Two adjacent label spans: icon, name, chevron. The plan chip is one span
@@ -266,7 +267,7 @@ function composerTextRules(): string[] {
     ].join(',\n')
   return [
     rule(targets(`${BODY}:not([${DARK_ATTRIBUTE}])`), { color: '#4f5459' }),
-    rule(targets(BODY_DARK), { color: '#c8ccd4' }),
+    rule(targets(BODY_DARK), { color: '#d4d8de' }),
   ]
 }
 

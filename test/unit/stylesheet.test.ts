@@ -207,7 +207,7 @@ describe('buildStylesheet', () => {
     assert.ok(sidebar)
     assert.match(sidebar.body, /--glassui-pct: calc\(var\(--glassui-fill-a\) \* 100%\);/)
     const light = all.find(rule => rule.body.includes('color: #4f5459;'))
-    const dark = all.find(rule => rule.body.includes('color: #c8ccd4;'))
+    const dark = all.find(rule => rule.body.includes('color: #d4d8de;'))
     assert.ok(light)
     assert.ok(dark)
     for (const rule of [light, dark]) {

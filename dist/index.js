@@ -4689,7 +4689,7 @@ function composerTextRules() {
   ].join(",\n");
   return [
     rule(targets(`${BODY}:not([${DARK_ATTRIBUTE}])`), { color: "#4f5459" }),
-    rule(targets(BODY_DARK), { color: "#c8ccd4" })
+    rule(targets(BODY_DARK), { color: "#d4d8de" })
   ];
 }
 function surfaceRules() {

@@ -38,6 +38,7 @@ if [ "$state" = "draft" ]; then
   for name in "dsh-glassui-${version}.tgz" SHA256SUMS; do
     if printf '%s\n' "$names" | grep -Fxq "$name"; then
       echo "release ${tag} already has ${name}; leaving existing assets unchanged" >&2
+      echo "remove it with: gh release delete-asset ${tag} ${name} --repo ${repo} --yes" >&2
       exit 1
     fi
   done
