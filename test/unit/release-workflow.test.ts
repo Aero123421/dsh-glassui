@@ -28,6 +28,25 @@ describe('release workflow', () => {
     assert.doesNotMatch(script, /not found/i)
   })
 
+  it('puts the same known issues in the changelog and the release notes', () => {
+    const changelog = readFileSync(new URL('../../CHANGELOG.md', import.meta.url), 'utf8')
+    const section = changelog.slice(changelog.indexOf('## [0.2.6]'), changelog.indexOf('## [0.2.5]'))
+    const sentences = [
+      'light・黒の入力欄では High のコントラストが 1.50 で、3 未満です。dark・白・透明度 0 では `#c8ccd4` が 4.5 未満になりえます。DSH 本体の配色と glassui の塗りの組み合わせで起きます。',
+      'pnpm 12 でプラグインを追加・更新すると、プロファイルの lockfile に公開から24時間たっていない依存が含まれている場合、`ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` で失敗することがあります。このとき pnpm がプロファイルの `node_modules` を空にし、DSH も元に戻さないため、**同じプロファイルのすべてのプラグインが読み込まれなくなります**。このプラグイン自体の不具合ではなく、どのプラグインを操作しても起こりえます。',
+      'プラグインの追加・更新は pnpm 10 で行ってください。',
+      '壊れたときは、pnpm 10 で `dsh plugin --profile web install` を実行すると元に戻ります。',
+      'pnpm 11 では `ERR_PNPM_UNEXPECTED_STORE` で止まりますが、`node_modules` は壊れません。',
+    ]
+    for (const sentence of sentences) {
+      assert.ok(section.includes(sentence), sentence.slice(0, 40))
+      assert.ok(workflow.includes(sentence), sentence.slice(0, 40))
+    }
+    assert.doesNotMatch(section, /この日以降/)
+    assert.doesNotMatch(workflow, /この日以降/)
+    assert.match(workflow, /section\.search\(\/\^### 既知の問題\/m\)/)
+  })
+
   it('creates a missing release as a draft', () => {
     const result = publish({ state: 'absent' })
     assert.equal(result.status, 0, result.stderr)
