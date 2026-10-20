@@ -2,8 +2,10 @@
 #   1. verifies the version, types, lint, tests and the integration suite,
 #   2. runs the E2E suite against the pinned DSH,
 #   3. packs the plugin tarball,
-#   4. publishes a GitHub Release with SHA256SUMS and a build provenance attestation.
-# Nothing is published to npm.
+#   4. creates a draft GitHub Release with SHA256SUMS and a build provenance attestation.
+# A tag push does not publish the release. If a release for that tag already
+# exists, the workflow uploads the tarball and SHA256SUMS only and leaves the
+# notes and draft or published state unchanged. Nothing is published to npm.
 name: Release
 on:
   push:
@@ -164,7 +166,6 @@ jobs:
           [ "$PRERELEASE" = "true" ] && flags="--prerelease"
           if gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "v${VERSION}" "release/dsh-glassui-${VERSION}.tgz" release/SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "v${VERSION}" --notes-file notes.md --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "v${VERSION}" "release/dsh-glassui-${VERSION}.tgz" release/SHA256SUMS --title "Glass UI ${VERSION}" --notes-file notes.md --verify-tag $flags --repo "$GITHUB_REPOSITORY"
+            gh release create "v${VERSION}" "release/dsh-glassui-${VERSION}.tgz" release/SHA256SUMS --draft --title "Glass UI ${VERSION}" --notes-file notes.md --verify-tag $flags --repo "$GITHUB_REPOSITORY"
           fi

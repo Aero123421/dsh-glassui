@@ -6,6 +6,12 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-10-20
+
+- 入力欄の塗り下限 0.74 をライトだけに移しました。ダークの入力欄は `--glassui-fill-a` のままです。0.2.5 ではこの下限が両方の配色にかかっており、ダークで黒い壁紙の下地が `#0d0d11` から `#232325` に明るくなり、モデルボタンのバッジ・High・モデル名のコントラストが 0.2.4 より下がっていました。
+- ライト・黒・透明度 0 は 0.2.5 のままです。High は 1.50 で、3 未満です。High を 0.2.4 の 1.82 に戻す暗い下地では、モデル名 `#4f5459` が 4.76 を下回ります。
+- タグの Release ワークフローは、そのタグの Release が無いとき draft で作ります。すでにある Release には tarball と SHA256SUMS だけを添付し、本文と公開状態は変えません。
+
 ## [0.2.5] - 2026-10-19
 
 - ガラスがオンのとき、入力欄のプレースホルダーと、入力欄の下のラベル（権限モードとモデル名）の文字色をライトは `#4f5459`、ダークは `#c8ccd4` にし、入力欄の塗り下限だけを 0.74 に上げました。ライトとダーク、壁紙 Bay・白・灰 `#808080`・黒、透明度 0 と 35 の 16 条件で、DSH 0.2.1-rc.2 の画面上の文字ピクセルとその直下の背景が 4.5:1 以上です。ダークの `#c8ccd4` は入力した文字より暗いです。ほかの面の塗りは従来の下限のままです。ガラスをオフにすると DSH 本体の色に戻ります。同じ版の画面では、ライトのプレースホルダー `#adb2b8` が白の上で 2.13:1、ダークのキャプションが暗い入力欄 `(44, 44, 46)` の上で 3.76:1 です（以前の読みは 3.61:1）。このプラグインはそのガラスオフの表示は変えません。
@@ -112,7 +118,8 @@ Includes the fixes prepared for v0.1.1, whose release checks failed before publi
 
 Supports DSH `>=0.2.0-rc.2 <0.3.0`.
 
-[Unreleased]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.2...v0.2.3

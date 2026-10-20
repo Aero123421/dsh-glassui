@@ -1,4 +1,4 @@
-/*! dsh-glassui 0.2.5 | MIT License | https://github.com/Aero123421/dsh-glassui#readme */
+/*! dsh-glassui 0.2.6 | MIT License | https://github.com/Aero123421/dsh-glassui#readme */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -4571,9 +4571,6 @@ var ROOT_PARAMETERS = {
   "--glassui-blur": "calc(6px + var(--glassui-tt) * 22px)",
   "--glassui-filter": "blur(var(--glassui-blur)) saturate(180%) brightness(1.04)",
   "--glassui-fill-a": "max(var(--glassui-floor), calc(0.16 + var(--glassui-tt) * 0.62))",
-  // Composer only. 0.74 keeps the light placeholder at 4.5:1 on black at tint 0;
-  // the tint can still raise it, and other surfaces stay on --glassui-fill-a.
-  "--glassui-composer-a": "max(0.74, var(--glassui-fill-a))",
   "--glassui-dense-a": "max(var(--glassui-floor), calc(0.52 + var(--glassui-tt) * 0.42))",
   "--glassui-smoke-a": "max(var(--glassui-floor), calc(0.5 + var(--glassui-tt) * 0.42))",
   // Code blocks stay dense enough for syntax colors to keep their contrast.
@@ -4585,6 +4582,10 @@ var ROOT_PARAMETERS = {
 };
 var LIGHT = {
   "--glassui-glass-rgb": "255 255 255",
+  // Composer only. 0.74 keeps the light placeholder at 4.5:1 on black at tint 0.
+  // The same floor in dark lightens a black wallpaper (#0d0d11 at --glassui-fill-a,
+  // #232325 at 0.74), so the dark palette sets its own --glassui-composer-a.
+  "--glassui-composer-a": "max(0.74, var(--glassui-fill-a))",
   "--glassui-smoke-rgb": "30 30 32",
   "--glassui-rim-hi": 0.9,
   "--glassui-rim-lo": 0.38,
@@ -4601,6 +4602,8 @@ var LIGHT = {
 };
 var DARK = {
   "--glassui-glass-rgb": "40 40 44",
+  // No 0.74 floor. Raising this alpha lightens the composer on a dark wallpaper.
+  "--glassui-composer-a": "var(--glassui-fill-a)",
   "--glassui-smoke-rgb": "44 44 48",
   "--glassui-rim-hi": 0.32,
   "--glassui-rim-lo": 0.12,
@@ -4924,9 +4927,9 @@ function readSettings(config) {
   });
 }
 function apply(ctx, config) {
-  applyUpdateRoutes(ctx, () => readSettings(config), "0.2.5");
+  applyUpdateRoutes(ctx, () => readSettings(config), "0.2.6");
   ctx.on("webserver/index-inject", (table) => {
-    table.push(...bootRows(readSettings(config), "0.2.5"));
+    table.push(...bootRows(readSettings(config), "0.2.6"));
   });
 }
 export {

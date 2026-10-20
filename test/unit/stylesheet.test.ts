@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { BODY, BODY_DARK, ROOT, buildStylesheet } from '../../src/shared/stylesheet.ts'
+import { BODY, BODY_DARK, INCLUDED, ROOT, buildStylesheet } from '../../src/shared/stylesheet.ts'
 import { FILL_KEYS, FILL_TOKENS, MENU_TOKENS } from '../../src/shared/tokens.ts'
 
 type Specificity = [number, number, number]
@@ -185,8 +185,17 @@ describe('buildStylesheet', () => {
     assert.equal(buildStylesheet(), css)
   })
 
-  it('raises only the composer fill and sets composer text colors while glass is on', () => {
-    assert.match(css, /--glassui-composer-a: max\(0\.74, var\(--glassui-fill-a\)\);/)
+  it('raises only the light composer fill and sets composer text colors while glass is on', () => {
+    const root = all.find(rule => rule.selectors.length === 1 && rule.selectors[0] === ROOT)
+    const lightPalette = all.find(rule => rule.selectors.length === 1 && rule.selectors[0] === `${BODY}${INCLUDED}`)
+    const darkPalette = all.find(rule => rule.selectors.length === 1 && rule.selectors[0] === `${BODY_DARK}${INCLUDED}`)
+    assert.ok(root)
+    assert.ok(lightPalette)
+    assert.ok(darkPalette)
+    assert.doesNotMatch(root.body, /--glassui-composer-a/)
+    assert.match(lightPalette.body, /--glassui-composer-a: max\(0\.74, var\(--glassui-fill-a\)\);/)
+    assert.match(darkPalette.body, /--glassui-composer-a: var\(--glassui-fill-a\);/)
+    assert.doesNotMatch(darkPalette.body, /0\.74/)
     const composer = all.find(rule =>
       rule.selectors.some(selector => selector.includes('[data-glassui-surface="composer"]')),
     )

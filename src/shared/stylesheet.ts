@@ -108,9 +108,6 @@ const ROOT_PARAMETERS: Declarations = {
   '--glassui-blur': 'calc(6px + var(--glassui-tt) * 22px)',
   '--glassui-filter': 'blur(var(--glassui-blur)) saturate(180%) brightness(1.04)',
   '--glassui-fill-a': 'max(var(--glassui-floor), calc(0.16 + var(--glassui-tt) * 0.62))',
-  // Composer only. 0.74 keeps the light placeholder at 4.5:1 on black at tint 0;
-  // the tint can still raise it, and other surfaces stay on --glassui-fill-a.
-  '--glassui-composer-a': 'max(0.74, var(--glassui-fill-a))',
   '--glassui-dense-a': 'max(var(--glassui-floor), calc(0.52 + var(--glassui-tt) * 0.42))',
   '--glassui-smoke-a': 'max(var(--glassui-floor), calc(0.5 + var(--glassui-tt) * 0.42))',
   // Code blocks stay dense enough for syntax colors to keep their contrast.
@@ -124,6 +121,10 @@ const ROOT_PARAMETERS: Declarations = {
 /** Light palette: glass colors, rim and shadow strengths, menu material. */
 const LIGHT: Declarations = {
   '--glassui-glass-rgb': '255 255 255',
+  // Composer only. 0.74 keeps the light placeholder at 4.5:1 on black at tint 0.
+  // The same floor in dark lightens a black wallpaper (#0d0d11 at --glassui-fill-a,
+  // #232325 at 0.74), so the dark palette sets its own --glassui-composer-a.
+  '--glassui-composer-a': 'max(0.74, var(--glassui-fill-a))',
   '--glassui-smoke-rgb': '30 30 32',
   '--glassui-rim-hi': 0.9,
   '--glassui-rim-lo': 0.38,
@@ -142,6 +143,8 @@ const LIGHT: Declarations = {
 /** Dark palette. */
 const DARK: Declarations = {
   '--glassui-glass-rgb': '40 40 44',
+  // No 0.74 floor. Raising this alpha lightens the composer on a dark wallpaper.
+  '--glassui-composer-a': 'var(--glassui-fill-a)',
   '--glassui-smoke-rgb': '44 44 48',
   '--glassui-rim-hi': 0.32,
   '--glassui-rim-lo': 0.12,
@@ -241,8 +244,8 @@ const PROPERTIES = [
  * not its hashed classes. The permission button has no title attribute on
  * 0.2.1-rc.2; it is the card button with icon, label and chevron spans and
  * without `aria-haspopup`. Glass off removes `data-glassui`, so DSH's colors
- * return. Dark `#c8ccd4` stays dimmer than typed text. A darker gray drops
- * under 4.5:1 on a white wallpaper at tint 0, the lightest dark-theme composer.
+ * return. Dark `#c8ccd4` stays dimmer than typed text. The dark composer has no
+ * 0.74 fill floor, so on a white wallpaper at tint 0 this gray is under 4.5:1.
  */
 function composerTextRules(): string[] {
   // Two adjacent label spans: icon, name, chevron. The plan chip is one span
