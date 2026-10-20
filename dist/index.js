@@ -4678,8 +4678,7 @@ var PROPERTIES = [
 function composerTextRules() {
   const permission = `[data-composer-card] button:not([aria-haspopup]):has(> span + span)`;
   const model = `[data-composer-card] button:has([data-model-id])`;
-  const targets = (scope) => [
-    `${scope} [data-composer-placeholder]`,
+  const labels = (scope) => [
     `${scope} ${permission}`,
     `${scope} ${permission} span`,
     `${scope} ${permission} svg`,
@@ -4687,9 +4686,12 @@ function composerTextRules() {
     `${scope} ${model} span[data-model-id]`,
     `${scope} ${model} svg`
   ].join(",\n");
+  const placeholder = (scope) => `${scope} [data-composer-placeholder]`;
+  const light = `${BODY}:not([${DARK_ATTRIBUTE}])`;
   return [
-    rule(targets(`${BODY}:not([${DARK_ATTRIBUTE}])`), { color: "#4f5459" }),
-    rule(targets(BODY_DARK), { color: "#d4d8de" })
+    rule([placeholder(light), labels(light)].join(",\n"), { color: "#4f5459" }),
+    rule(placeholder(BODY_DARK), { color: "#b0b4ba" }),
+    rule(labels(BODY_DARK), { color: "#d4d8de" })
   ];
 }
 function surfaceRules() {

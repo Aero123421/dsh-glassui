@@ -244,9 +244,12 @@ const PROPERTIES = [
  * not its hashed classes. The permission button has no title attribute on
  * 0.2.1-rc.2; it is the card button with icon, label and chevron spans and
  * without `aria-haspopup`. Glass off removes `data-glassui`, so DSH's colors
- * return. Dark `#d4d8de` stays dimmer than typed text (`#f3f4f6`) and is at least
- * as light as DSH's secondary gray `#cfd3d6`. The dark composer has no 0.74 fill
- * floor. On a white wallpaper this gray is 2.17:1 at tint 0 and 4.56:1 at tint 35.
+ * return. Dark labels and the model name use `#d4d8de`, which stays dimmer than
+ * typed text (`#f3f4f6`) and is at least as light as DSH's secondary gray
+ * `#cfd3d6`. The dark placeholder is `#b0b4ba`, also dimmer than that typed text.
+ * The dark composer has no 0.74 fill floor. On a white wallpaper the model name
+ * is 2.17:1 at tint 0 and 4.59:1 at tint 35. The dark placeholder against typed
+ * text is 1.99:1, below 0.2.4's 3.55:1, which keeps its contrast on the background.
  */
 function composerTextRules(): string[] {
   // Two adjacent label spans: icon, name, chevron. The plan chip is one span
@@ -255,9 +258,8 @@ function composerTextRules(): string[] {
   // The model name is the span with data-model-id. The 1017 badge is a nested
   // span inside that label, so it keeps DSH's accent color.
   const model = `[data-composer-card] button:has([data-model-id])`
-  const targets = (scope: string): string =>
+  const labels = (scope: string): string =>
     [
-      `${scope} [data-composer-placeholder]`,
       `${scope} ${permission}`,
       `${scope} ${permission} span`,
       `${scope} ${permission} svg`,
@@ -265,9 +267,12 @@ function composerTextRules(): string[] {
       `${scope} ${model} span[data-model-id]`,
       `${scope} ${model} svg`,
     ].join(',\n')
+  const placeholder = (scope: string): string => `${scope} [data-composer-placeholder]`
+  const light = `${BODY}:not([${DARK_ATTRIBUTE}])`
   return [
-    rule(targets(`${BODY}:not([${DARK_ATTRIBUTE}])`), { color: '#4f5459' }),
-    rule(targets(BODY_DARK), { color: '#d4d8de' }),
+    rule([placeholder(light), labels(light)].join(',\n'), { color: '#4f5459' }),
+    rule(placeholder(BODY_DARK), { color: '#b0b4ba' }),
+    rule(labels(BODY_DARK), { color: '#d4d8de' }),
   ]
 }
 

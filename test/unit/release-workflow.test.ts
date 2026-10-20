@@ -33,6 +33,7 @@ describe('release workflow', () => {
     const section = changelog.slice(changelog.indexOf('## [0.2.6]'), changelog.indexOf('## [0.2.5]'))
     const sentences = [
       '残るコントラストの不足は、DSH 本体の配色と glassui の塗りの組み合わせで起きます。',
+      'ダークでは、プレースホルダーと入力した文字の比が 1.99 で、0.2.4 の 3.55 より小さい（背景とのコントラストを保つため）。',
       'pnpm 12 でプラグインを追加・更新すると、プロファイルの lockfile に公開から24時間たっていない依存が含まれている場合、`ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` で失敗することがあります。このとき pnpm がプロファイルの `node_modules` を空にし、DSH も元に戻さないため、**同じプロファイルのすべてのプラグインが読み込まれなくなります**。このプラグイン自体の不具合ではなく、どのプラグインを操作しても起こりえます。',
       'プラグインの追加・更新は pnpm 10 で行ってください。',
       '壊れたときは、pnpm 10 で `dsh plugin --profile web install` を実行すると元に戻ります。',
@@ -109,6 +110,14 @@ describe('release workflow', () => {
     }
   })
 
+  it('does not create a release when the list is full and omits the tag', () => {
+    const result = publish({ state: 'full-without-tag' })
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /returned 1000 entries and did not include v0\.2\.6/)
+    assert.doesNotMatch(result.calls, /release create/)
+    assert.doesNotMatch(result.calls, /release upload/)
+  })
+
   it('creates a draft when the list is empty even if stderr says the release is missing', () => {
     const result = publish({ state: 'absent' })
     assert.equal(result.status, 0, result.stderr)
@@ -145,7 +154,7 @@ function releaseNotes(): string {
 }
 
 function publish(input: {
-  state: 'absent' | 'draft' | 'published' | 'missing-draft-field'
+  state: 'absent' | 'draft' | 'published' | 'missing-draft-field' | 'full-without-tag'
   assets?: string[]
   prerelease?: boolean
 }): {
@@ -171,6 +180,10 @@ if (command === 'release list') {
   if (state === 'draft') list = [{ tagName: tag, isDraft: true }]
   else if (state === 'published') list = [{ tagName: tag, isDraft: false }]
   else if (state === 'missing-draft-field') list = [{ tagName: tag }]
+  else if (state === 'full-without-tag') {
+    list = []
+    for (let i = 0; i < 1000; i++) list.push({ tagName: 'v9.9.' + i, isDraft: false })
+  }
   process.stdout.write(JSON.stringify(list))
   process.exit(0)
 }

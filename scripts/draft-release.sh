@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Attach this version's tarball to the GitHub Release for the tag.
 # Whether a release exists is read from `gh release list --json tagName,isDraft`
-# only. A missing tag is created as a draft. A draft gains the tarball and
+# only. A missing tag is created as a draft, unless the list is exactly 1000
+# entries and does not include the tag: that page may be truncated, so this
+# script creates nothing and exits 1. A draft gains the tarball and
 # SHA256SUMS only when those names are not already attached. A published
 # release (isDraft is not true) is left completely unchanged and this script
 # exits 1. A matching asset on a draft is also left in place and the script
@@ -22,7 +24,8 @@ state="$(
       const list = JSON.parse(require("fs").readFileSync(0, "utf8"))
       if (!Array.isArray(list)) throw new Error("release list JSON must be an array")
       const found = list.find(item => item && item.tagName === tag)
-      if (!found) process.stdout.write("absent")
+      if (!found && list.length === 1000) process.stdout.write("truncated")
+      else if (!found) process.stdout.write("absent")
       else if (found.isDraft === true) process.stdout.write("draft")
       else process.stdout.write("published")
     '
@@ -43,6 +46,9 @@ if [ "$state" = "draft" ]; then
     fi
   done
   gh release upload "$tag" "$tarball" "$sums" --repo "$repo"
+elif [ "$state" = "truncated" ]; then
+  echo "release list returned 1000 entries and did not include ${tag}; not creating a release" >&2
+  exit 1
 elif [ "$state" = "absent" ]; then
   args=(
     release create "$tag" "$tarball" "$sums"
