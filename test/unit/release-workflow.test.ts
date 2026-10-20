@@ -24,10 +24,12 @@ describe('release workflow', () => {
     }
     assert.match(script, /--draft/)
     assert.match(script, /exit 1/)
+    assert.match(script, /gh release list --repo "\$repo" --limit 1000 --json tagName,isDraft/)
+    assert.doesNotMatch(script, /not found/i)
   })
 
   it('creates a missing release as a draft', () => {
-    const result = publish({ exists: false })
+    const result = publish({ state: 'absent' })
     assert.equal(result.status, 0, result.stderr)
     assert.match(result.calls, /release create v0\.2\.6 release\/dsh-glassui-0\.2\.6\.tgz release\/SHA256SUMS --draft /)
     assert.doesNotMatch(result.calls, /release upload/)
@@ -35,14 +37,14 @@ describe('release workflow', () => {
   })
 
   it('keeps a prerelease draft when the release is new', () => {
-    const result = publish({ exists: false, prerelease: true })
+    const result = publish({ state: 'absent', prerelease: true })
     assert.equal(result.status, 0, result.stderr)
     assert.match(result.calls, /release create \S+ \S+ \S+ --draft /)
     assert.match(result.calls, /--prerelease/)
   })
 
-  it('uploads only when the release has neither asset', () => {
-    const result = publish({ exists: true, assets: [] })
+  it('uploads only when the draft has neither asset', () => {
+    const result = publish({ state: 'draft', assets: [] })
     assert.equal(result.status, 0, result.stderr)
     assert.match(
       result.calls,
@@ -52,23 +54,48 @@ describe('release workflow', () => {
     assert.doesNotMatch(result.calls, /--draft/)
   })
 
-  it('fails and leaves an existing tarball in place', () => {
-    const result = publish({ exists: true, assets: ['dsh-glassui-0.2.6.tgz'] })
+  it('fails and leaves an existing tarball on a draft in place', () => {
+    const result = publish({ state: 'draft', assets: ['dsh-glassui-0.2.6.tgz'] })
     assert.equal(result.status, 1)
     assert.match(result.stderr, /already has dsh-glassui-0\.2\.6\.tgz/)
     assert.doesNotMatch(result.calls, /release upload/)
     assert.doesNotMatch(result.calls, /release create/)
   })
 
-  it('fails and leaves an existing SHA256SUMS in place', () => {
-    const result = publish({ exists: true, assets: ['SHA256SUMS'] })
+  it('fails and leaves an existing SHA256SUMS on a draft in place', () => {
+    const result = publish({ state: 'draft', assets: ['SHA256SUMS'] })
     assert.equal(result.status, 1)
     assert.match(result.stderr, /already has SHA256SUMS/)
     assert.doesNotMatch(result.calls, /release upload/)
   })
+
+  it('stops before changing a published release, including its assets', () => {
+    for (const state of ['published', 'missing-draft-field'] as const) {
+      const result = publish({ state, assets: [] })
+      assert.equal(result.status, 1, `${state}: ${result.stderr}`)
+      assert.match(result.stderr, /already published/)
+      assert.match(result.calls, /release list --repo Aero123421\/dsh-glassui --limit 1000 --json tagName,isDraft/)
+      assert.doesNotMatch(result.calls, /release upload/)
+      assert.doesNotMatch(result.calls, /release create/)
+      assert.doesNotMatch(result.calls, /release view/)
+      assert.doesNotMatch(result.calls, /release edit/)
+    }
+  })
+
+  it('creates a draft when the list is empty even if stderr says the release is missing', () => {
+    const result = publish({ state: 'absent' })
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.calls, /release list /)
+    assert.match(result.calls, /release create /)
+    assert.match(result.stderr, /release not found/)
+  })
 })
 
-function publish(input: { exists: boolean; assets?: string[]; prerelease?: boolean }): {
+function publish(input: {
+  state: 'absent' | 'draft' | 'published' | 'missing-draft-field'
+  assets?: string[]
+  prerelease?: boolean
+}): {
   status: number | null
   calls: string
   stderr: string
@@ -82,9 +109,19 @@ function publish(input: { exists: boolean; assets?: string[]; prerelease?: boole
 const { appendFileSync } = require('node:fs')
 const args = process.argv.slice(2)
 appendFileSync(process.env.GH_FAKE_LOG, args.join(' ') + '\\n')
+process.stderr.write('release not found\\n')
 const command = args.slice(0, 2).join(' ')
+if (command === 'release list') {
+  const state = process.env.GH_FAKE_STATE
+  const tag = 'v0.2.6'
+  let list = []
+  if (state === 'draft') list = [{ tagName: tag, isDraft: true }]
+  else if (state === 'published') list = [{ tagName: tag, isDraft: false }]
+  else if (state === 'missing-draft-field') list = [{ tagName: tag }]
+  process.stdout.write(JSON.stringify(list))
+  process.exit(0)
+}
 if (command === 'release view') {
-  if (process.env.GH_FAKE_EXISTS !== '1') process.exit(1)
   if (args.includes('--json')) {
     const names = (process.env.GH_FAKE_ASSETS || '').split(',').filter(Boolean)
     if (names.length) process.stdout.write(names.join('\\n') + '\\n')
@@ -102,7 +139,7 @@ process.exit(1)
       ...process.env,
       PATH: `${dir}:${process.env.PATH ?? ''}`,
       GH_FAKE_LOG: log,
-      GH_FAKE_EXISTS: input.exists ? '1' : '0',
+      GH_FAKE_STATE: input.state,
       GH_FAKE_ASSETS: (input.assets ?? []).join(','),
       VERSION: '0.2.6',
       GITHUB_REPOSITORY: 'Aero123421/dsh-glassui',

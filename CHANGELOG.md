@@ -10,7 +10,7 @@ All notable changes are documented here. The format follows
 
 - 入力欄の塗り下限 0.74 をライトだけに移しました。ダークの入力欄は `--glassui-fill-a` のままです。0.2.5 ではこの下限が両方の配色にかかっており、ダークで黒い壁紙の下地が `#0d0d11` から `#232325` に明るくなり、モデルボタンのバッジ・High・モデル名のコントラストが 0.2.4 より下がっていました。
 - ライト・黒・透明度 0 は 0.2.5 のままです。High は 1.50 で、3 未満です。High を 0.2.4 の 1.82 に戻す暗い下地では、モデル名 `#4f5459` が 4.76 を下回ります。
-- タグの Release ワークフローは、そのタグの Release が無いとき draft で作ります。すでにある Release（draft を含む）には、同名の tarball と SHA256SUMS が無いときだけそれらを添付します。同名の資産があるときは残したまま失敗します。本文、draft か公開か、latest は変えません。
+- タグの Release ワークフローは、`gh release list --json tagName,isDraft` でそのタグの Release を探します。無いときは draft で作ります。draft には、同名の tarball と SHA256SUMS が無いときだけそれらを添付します。同名の資産があるとき、またはすでに公開済みのときは、資産も含めて何も変えず失敗します。本文、draft か公開か、latest は変えません。
 
 ## [0.2.5] - 2026-10-19
 

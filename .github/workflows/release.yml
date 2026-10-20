@@ -3,11 +3,13 @@
 #   2. runs the E2E suite against the pinned DSH,
 #   3. packs the plugin tarball,
 #   4. creates a draft GitHub Release with SHA256SUMS and a build provenance attestation.
-# A tag push does not publish the release. If a release for that tag already
-# exists, including a draft, the tarball and SHA256SUMS are attached only when
-# those names are not already on the release. A matching asset is left in place
-# and the step fails. The notes, the draft or published state, and which release
-# is latest stay as they are. Nothing is published to npm.
+# A tag push does not publish the release. The publish step reads
+# `gh release list --json tagName,isDraft`. A missing tag becomes a draft.
+# A draft gains the tarball and SHA256SUMS only when those names are absent.
+# A published release is left unchanged, including its assets, and the step
+# fails. A matching asset on a draft is also left in place and the step fails.
+# Notes, the draft or published state, and which release is latest stay as
+# they are. Nothing is published to npm.
 name: Release
 on:
   push:
