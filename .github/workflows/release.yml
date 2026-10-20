@@ -4,8 +4,10 @@
 #   3. packs the plugin tarball,
 #   4. creates a draft GitHub Release with SHA256SUMS and a build provenance attestation.
 # A tag push does not publish the release. If a release for that tag already
-# exists, the workflow uploads the tarball and SHA256SUMS only and leaves the
-# notes and draft or published state unchanged. Nothing is published to npm.
+# exists, including a draft, the tarball and SHA256SUMS are attached only when
+# those names are not already on the release. A matching asset is left in place
+# and the step fails. The notes, the draft or published state, and which release
+# is latest stay as they are. Nothing is published to npm.
 name: Release
 on:
   push:
@@ -161,11 +163,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.verify.outputs.version }}
           PRERELEASE: ${{ needs.verify.outputs.prerelease }}
-        run: |
-          flags=""
-          [ "$PRERELEASE" = "true" ] && flags="--prerelease"
-          if gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "v${VERSION}" "release/dsh-glassui-${VERSION}.tgz" release/SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "v${VERSION}" "release/dsh-glassui-${VERSION}.tgz" release/SHA256SUMS --draft --title "Glass UI ${VERSION}" --notes-file notes.md --verify-tag $flags --repo "$GITHUB_REPOSITORY"
-          fi
+        run: bash scripts/publish-release.sh
