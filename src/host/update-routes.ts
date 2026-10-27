@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { normalizeSettings, sameSettings, DEFAULT_SETTINGS, type GlassSettings } from '../shared/settings.ts'
-import { PluginUpdates, type Manager } from './updates.mjs'
+import { ADMITTED_UPDATE_ERRORS, PluginUpdates, type Manager } from './updates.mjs'
 
 interface Services {
   pluginManager: Manager
@@ -93,9 +93,7 @@ export function applyUpdateRoutes(ctx: UpdateHost, readSettings: () => GlassSett
           } catch (error) {
             if (rpcId === undefined) return new Response('invalid request', { status: 400 })
             const code =
-              error instanceof Error && ['settings', 'busy', 'invalid-request', 'profile'].includes(error.message)
-                ? error.message
-                : 'update-failed'
+              error instanceof Error && ADMITTED_UPDATE_ERRORS.includes(error.message) ? error.message : 'update-failed'
             return Response.json(
               {
                 type: 'server-response',

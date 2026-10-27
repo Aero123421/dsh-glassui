@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { UpdateController } from '../../src/client/update-controller.mjs'
+import { rejectedReason, UpdateController } from '../../src/client/update-controller.mjs'
 import { DEFAULT_SETTINGS } from '../../src/shared/settings.ts'
 function storage() {
   const map = new Map()
@@ -71,6 +71,26 @@ test('update waits for real settings settlement and rejected save never sends be
   assert.equal(rejected.state.status, 'failed')
   assert.equal(rejected.state.reason, 'settings')
   rejected.dispose()
+})
+test('a stale update candidate is named, and an unknown RPC failure stays a network error', async () => {
+  assert.equal(rejectedReason(new Error('dsh-glassui/stale-candidate')), 'stale-candidate')
+  assert.equal(rejectedReason(new Error('dsh-glassui/update-failed')), 'network')
+  assert.equal(rejectedReason(new Error('socket hang up')), 'network')
+  const controller = new UpdateController(
+    {
+      rpc: {
+        call: async () => ({ ok: false, error: { code: 'dsh-glassui/stale-candidate', message: 'stale-candidate' } }),
+      },
+    },
+    async () => () => {},
+    () => DEFAULT_SETTINGS,
+    storage(),
+  )
+  controller.publish({ status: 'available', candidate, profileKey })
+  await controller.begin()
+  assert.equal(controller.state.status, 'failed')
+  assert.equal(controller.state.reason, 'stale-candidate')
+  controller.dispose()
 })
 test('lost begin response retains operation id; explicit refusal clears it before reset', async () => {
   const saved = storage(),
