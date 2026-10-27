@@ -599,8 +599,11 @@ export function SettingsPage(props: SettingsPageProps) {
   }, [])
   useEffect(() => {
     if (!narrow) return
+    const root = dialog.current
+    if (!root) return
     const previous = document.activeElement
-    dialog.current?.querySelector<HTMLButtonElement>('button')?.focus()
+    if (previous instanceof HTMLElement && root.contains(previous)) return
+    root.querySelector<HTMLButtonElement>('button')?.focus()
     return () => {
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus()
     }
@@ -807,48 +810,47 @@ export function SettingsPage(props: SettingsPageProps) {
   )
   return (
     <div className="glassui-mount" ref={mount}>
-      {narrow ? (
-        <div className="glassui-narrow">
-          <div
-            ref={dialog}
-            className="glassui-narrow__dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t('title')}
-            onKeyDown={event => {
-              if (event.key === 'Escape') {
-                event.stopPropagation()
-                close()
-              }
-              if (event.key !== 'Tab') return
-              const elements = [
-                ...event.currentTarget.querySelectorAll<HTMLElement>(
-                  'button:not(:disabled),input:not(:disabled),a[href],textarea:not(:disabled)',
-                ),
-              ].filter(element => element.tabIndex >= 0 && element.getClientRects().length > 0)
-              const first = elements[0],
-                last = elements.at(-1)
-              if (event.shiftKey && document.activeElement === first) {
-                event.preventDefault()
-                last?.focus()
-              } else if (!event.shiftKey && document.activeElement === last) {
-                event.preventDefault()
-                first?.focus()
-              }
-            }}
-          >
+      <div className={narrow ? 'glassui-narrow' : undefined}>
+        <div
+          ref={dialog}
+          className={narrow ? 'glassui-narrow__dialog' : undefined}
+          role={narrow ? 'dialog' : undefined}
+          aria-modal={narrow ? true : undefined}
+          aria-label={narrow ? t('title') : undefined}
+          onKeyDown={event => {
+            if (!narrow) return
+            if (event.key === 'Escape') {
+              event.stopPropagation()
+              close()
+            }
+            if (event.key !== 'Tab') return
+            const elements = [
+              ...event.currentTarget.querySelectorAll<HTMLElement>(
+                'button:not(:disabled),input:not(:disabled),a[href],textarea:not(:disabled)',
+              ),
+            ].filter(element => element.tabIndex >= 0 && element.getClientRects().length > 0)
+            const first = elements[0],
+              last = elements.at(-1)
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault()
+              last?.focus()
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault()
+              first?.focus()
+            }
+          }}
+        >
+          {narrow ? (
             <div className="glassui-narrow__header">
               <strong>{t('title')}</strong>
               <button type="button" className="glassui-button" onClick={close}>
                 {t('settings.close')}
               </button>
             </div>
-            {content}
-          </div>
+          ) : null}
+          {content}
         </div>
-      ) : (
-        content
-      )}
+      </div>
     </div>
   )
 }

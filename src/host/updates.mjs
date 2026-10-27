@@ -13,26 +13,29 @@ const ROOT = `https://api.github.com/repos/${REPOSITORY}`
 const MAX_PACKAGE = 32 * 1024 * 1024
 const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/
 
+const OPERATION_REASONS = [
+  'manager-unavailable',
+  'read-only',
+  'source',
+  'metadata',
+  'asset',
+  'channel',
+  'incompatible',
+  'compatibility-unknown',
+  'busy',
+  'checksum',
+  'redirect',
+  'size',
+  'stale-candidate',
+  'release-unavailable',
+  'storage',
+  'interrupted',
+]
+/** RPC errors the settings page can name. Anything else stays a generic failure. */
+export const ADMITTED_UPDATE_ERRORS = [...OPERATION_REASONS, 'settings', 'profile', 'invalid-request']
+
 function reasonOf(error) {
-  const allowed = [
-    'manager-unavailable',
-    'read-only',
-    'source',
-    'metadata',
-    'asset',
-    'channel',
-    'incompatible',
-    'compatibility-unknown',
-    'busy',
-    'checksum',
-    'redirect',
-    'size',
-    'stale-candidate',
-    'release-unavailable',
-    'storage',
-    'interrupted',
-  ]
-  return allowed.includes(error?.message) ? error.message : 'network'
+  return OPERATION_REASONS.includes(error?.message) ? error.message : 'network'
 }
 
 export function semanticVersion(value) {

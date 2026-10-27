@@ -1,6 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdtempSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 const { version } = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
 import * as host from '../../dist/index.js'
 function fixture(config = {}) {
@@ -46,6 +49,57 @@ test('optional manager leaves boot and settings working; authenticated route sha
     .get('/api/dsh-glassui/update-status')
     .fetch(new Request('http://localhost', { method: 'POST', body: '{}' }))
   assert.equal(malformed.status, 415)
+})
+test('an unavailable manager is named instead of a generic update failure', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'glassui-route-'))
+  const profileKey = createHash('sha256')
+    .update(`dsh-glassui\0${resolve(dir)}`)
+    .digest('hex')
+  const routes = new Map()
+  const ctx = {
+    on: () => {},
+    get: name => {
+      if (name === 'profileContext') return { dir }
+      if (name === 'pluginManager') {
+        return {
+          listBundles: async () => [
+            {
+              name: 'dsh-glassui',
+              installed: true,
+              version: '0.2.6',
+              source: 'github:Aero123421/dsh-glassui#v0.2.6',
+              enabled: true,
+            },
+          ],
+          installBundle: async () => ({}),
+          waitForInstall: async () => null,
+        }
+      }
+      return undefined
+    },
+    effect: () => {},
+    inject: (_names, setup) => setup({ connection: { fetch: { register: route => routes.set(route.path, route) } } }),
+  }
+  host.apply(ctx, host.Config({}))
+  const failure = await call(routes, 'begin', {
+    settings: {
+      enabled: true,
+      tint: 35,
+      wallpaper: 'auto',
+      wallpaperUrl: '',
+      sidebar: 'floating',
+      codeBlocks: 'glass',
+      inlineCodeOpacity: 72,
+      refraction: true,
+      highlights: true,
+      exclude: '',
+    },
+    candidateId: 'release',
+    requestId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    profileKey,
+  })
+  assert.equal(failure.result.ok, false)
+  assert.equal(failure.result.error.code, 'dsh-glassui/manager-unavailable')
 })
 test('another client setting change refuses update admission before any installation', async t => {
   const { routes, dispose } = fixture({ tint: 37 })

@@ -2129,26 +2129,27 @@ var RELEASES = `https://github.com/${REPOSITORY}/releases`;
 var ROOT = `https://api.github.com/repos/${REPOSITORY}`;
 var MAX_PACKAGE = 32 * 1024 * 1024;
 var UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
+var OPERATION_REASONS = [
+  "manager-unavailable",
+  "read-only",
+  "source",
+  "metadata",
+  "asset",
+  "channel",
+  "incompatible",
+  "compatibility-unknown",
+  "busy",
+  "checksum",
+  "redirect",
+  "size",
+  "stale-candidate",
+  "release-unavailable",
+  "storage",
+  "interrupted"
+];
+var ADMITTED_UPDATE_ERRORS = [...OPERATION_REASONS, "settings", "profile", "invalid-request"];
 function reasonOf(error) {
-  const allowed = [
-    "manager-unavailable",
-    "read-only",
-    "source",
-    "metadata",
-    "asset",
-    "channel",
-    "incompatible",
-    "compatibility-unknown",
-    "busy",
-    "checksum",
-    "redirect",
-    "size",
-    "stale-candidate",
-    "release-unavailable",
-    "storage",
-    "interrupted"
-  ];
-  return allowed.includes(error?.message) ? error.message : "network";
+  return OPERATION_REASONS.includes(error?.message) ? error.message : "network";
 }
 function semanticVersion(value) {
   if (typeof value !== "string") throw new Error("metadata");
@@ -3923,7 +3924,7 @@ function applyUpdateRoutes(ctx, readSettings2, version) {
             );
           } catch (error) {
             if (rpcId === void 0) return new Response("invalid request", { status: 400 });
-            const code = error instanceof Error && ["settings", "busy", "invalid-request", "profile"].includes(error.message) ? error.message : "update-failed";
+            const code = error instanceof Error && ADMITTED_UPDATE_ERRORS.includes(error.message) ? error.message : "update-failed";
             return Response.json(
               {
                 type: "server-response",
