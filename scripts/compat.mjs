@@ -78,7 +78,9 @@ const settingsCss = await readFile(join(root, 'src/client/settings/styles.css'),
 
 /** @type {Map<string, { required: boolean, source: string }>} */
 const neededTokens = new Map()
-for (const name of tokens.ALL_UPSTREAM_TOKENS) neededTokens.set(name, { required: true, source: 'engine' })
+for (const name of tokens.ALL_UPSTREAM_TOKENS)
+  // Removed in DSH 0.2.2-alpha.2; the engine still reserves it on older themes.
+  neededTokens.set(name, { required: name !== '--dsw-specific-sidebar-nav-item-hover', source: 'engine' })
 for (const match of settingsCss.matchAll(/var\((--dsw-[\w-]+)\s*(,)?/g)) {
   const name = match[1]
   const withFallback = match[2] === ','

@@ -36,7 +36,7 @@ DSH `>=0.2.0-rc.2 <0.3.0-0` を対象とします。DSH はこの範囲の prere
 
 3. DSH に再起動を求められたら再起動し、DSH Web を開き直します。最初からガラスがオンになっていて、「設定 → Glass UI」で調整できます。
 
-日本語の表示には dsh-japanese が必要です。このプラグインは英語・日本語・中国語の辞書を登録するだけで、言語 `ja` は追加しません。[dsh-japanese](https://github.com/Aero123421/dsh-japanese) を導入し、言語を日本語（ja-JP）にしてください。入っていないときは DSH の言語は中文と English だけで、Glass UI は英語のままです。zh-CN では、このプラグインに同梱した中国語の辞書を使います。
+このプラグインは英語・日本語・中国語の辞書を登録するだけで、言語は追加しません。DSH 0.2.2-alpha.2 では本体の言語メニューにある日本語を選ぶと、同梱の日本語辞書を使えます。中文と English だけを表示する旧版では、[dsh-japanese](https://github.com/Aero123421/dsh-japanese) を導入して日本語を追加してください。zh-CN では、同梱の中国語辞書を使います。
 
 [リリースの tarball](https://github.com/Aero123421/dsh-glassui/releases/latest) の URL からもインストールできます。どちらもビルド済みのプラグインを含みます。
 

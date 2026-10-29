@@ -788,8 +788,20 @@ export class GlassEngine {
     for (const root of this.roots) {
       if (!this.admissible(root)) continue
       // A walk already under way may have passed the new subtree, so only a pending walk can absorb it.
-      if (root.isConnected && !this.walkers.some(entry => !entry.started && entry.root.contains(root))) {
-        this.walkers = this.walkers.filter(entry => entry.started || !root.contains(entry.root))
+      // Distinct siblings cannot contain one another. Streaming rows commonly
+      // share a parent; avoid native ancestry queries for every pair of rows.
+      const parent = root.parentNode
+      if (
+        root.isConnected &&
+        !this.walkers.some(
+          entry =>
+            !entry.started && (entry.root === root || (entry.root.parentNode !== parent && entry.root.contains(root))),
+        )
+      ) {
+        this.walkers = this.walkers.filter(
+          entry =>
+            entry.started || (entry.root !== root && entry.root.parentNode === parent) || !root.contains(entry.root),
+        )
         this.walkers.push({ root, walker: this.walker(root), started: false })
       }
     }

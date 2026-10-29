@@ -25,7 +25,9 @@ export async function localeFixture(world) {
   await writeFile(
     join(dir, 'client.js'),
     `window.__ModuleLoader__.load({id:'glassui-e2e-locale',factory(){return {inject:['locale','configForms'],apply(ctx){
-    ctx.effect(() => ctx.locale.addLanguage({id:'ja',label:'日本語',fallback:'en'}));
+    if (!ctx.locale.getSnapshot().locales.some(locale => locale.id === 'ja')) {
+      ctx.effect(() => ctx.locale.addLanguage({id:'ja',label:'日本語',fallback:'en'}));
+    }
     const style=document.createElement('style'); style.dataset.testLocaleFont='';style.textContent='.test-foreign-font { font-family: sans-serif; }';document.head.append(style);
     const handle={async set(id){if(!await ctx.configForms.get('locale').set('preference',id))throw new Error('test locale save rejected')}};window.__GLASSUI_TEST_LOCALE__=handle;
     ctx.effect(()=>()=>{style.remove();if(window.__GLASSUI_TEST_LOCALE__===handle)delete window.__GLASSUI_TEST_LOCALE__});
