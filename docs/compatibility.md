@@ -15,6 +15,8 @@ Glass UI is built to keep working when DSH changes. This page describes what it 
 
 The dist-tag resolutions above were checked on 2026-10-18. A dist-tag can move independently of a Glass UI release.
 
+On 2026-10-29, npm resolves `latest` to 0.2.1-rc.2, `next` to 0.2.1-rc.4 and `alpha` to 0.2.2-alpha.2. These are prereleases. The table records the earlier browser coverage; it does not establish browser coverage for newer tag targets.
+
 ## What the plugin depends on
 
 Everything is listed in code, not just here:
@@ -33,7 +35,11 @@ npm run compat -- --dsh path/to/a/dsh/install
 npm run compat -- --install 0.2.1-rc.2 --json
 ```
 
-`scripts/compat.mjs` scans the installed `@deepseek-ai/*` packages for every token definition and contract above and exits non-zero when a required one is missing. The E2E suite then exercises the real thing:
+`scripts/compat.mjs` scans the installed `@deepseek-ai/*` packages for every token definition and contract above and exits non-zero when a required one is missing.
+
+The retired `--dsw-specific-sidebar-nav-item-hover` reservation is optional: DSH 0.2.2-alpha.2 no longer defines it. The engine still reserves its color on older DSH versions and ignores it when absent. Its removal produces a compatibility warning; missing watched fills still fail the check.
+
+The E2E suite then exercises the real thing:
 
 ```sh
 DSH_VERSION=alpha npm run test:e2e
