@@ -6,10 +6,20 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-11-01
+
 - 設定の幅が 240px 未満になると、入力途中の壁紙 URL が消え、フォーカスが閉じるボタンへ移っていました。狭い表示でも設定の中身を同じ要素の子のままにし、すでにその中にフォーカスがあるときは移しません。
 - 更新 RPC が `stale-candidate` や `manager-unavailable` などを返しても、設定には通信失敗と出ていました。Host が認める理由をそのまま通し、Client もその理由を表示します。
 - ポインターハイライトと屈折は「透明度を下げる」でオフになります。英語・日本語・中国語の説明と README に、その条件を書きました。
 - ストリーミングで同じ親へ追加される行の包含判定を省き、重複する走査の整理を軽量化しました。面の分類・表示・走査予算は維持しています。
+- DSH 0.2.2-alpha.2 で廃止された予約 token の欠落を互換性警告に変更し、本体に日本語がある場合は E2E fixture の二重登録を避けます。
+
+### 既知の問題
+
+- pnpm 12 では公開後24時間未満の依存を含む profile の追加・更新が失敗し、同じ profile の全プラグインが読み込めなくなる場合があります。追加・更新には pnpm 10 を使用し、壊れた場合は pnpm 10 で `dsh plugin --profile web install` を実行してください。詳細は [0.2.6 の既知の問題](https://github.com/Aero123421/dsh-glassui/releases/tag/v0.2.6) を参照してください。
+- 更新候補の互換性判定は `engines.dsh` を見ません。本体と異なる更新可否を表示する場合があります（[#26](https://github.com/Aero123421/dsh-glassui/issues/26)）。
+- 手動復元が導入まで進まない場合、次の reconcile まで復元ボタンが消える場合があります（[#28](https://github.com/Aero123421/dsh-glassui/issues/28)）。
+- 一部の配色・壁紙の組合せでは文字や High バッジのコントラストが不足します。計測条件と値は [0.2.6 の既知の問題](https://github.com/Aero123421/dsh-glassui/releases/tag/v0.2.6) を参照してください。
 
 ## [0.2.6] - 2026-10-20
 
@@ -136,7 +146,8 @@ Includes the fixes prepared for v0.1.1, whose release checks failed before publi
 
 Supports DSH `>=0.2.0-rc.2 <0.3.0`.
 
-[Unreleased]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.6...HEAD
+[Unreleased]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.7...HEAD
+[0.2.7]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/Aero123421/dsh-glassui/compare/v0.2.3...v0.2.4
