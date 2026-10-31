@@ -36,7 +36,7 @@ Requires DSH `>=0.2.0-rc.2 <0.3.0-0`. DSH admits prereleases in that range, incl
 
 3. Restart DSH if it asks you to, then reload DSH Web. The glass is on by default; **Settings → Glass UI** has the controls.
 
-Japanese display requires dsh-japanese (日本語の表示には dsh-japanese が必要). This plugin registers its English, Japanese and Chinese dictionaries and does not add the `ja` language. Install [dsh-japanese](https://github.com/Aero123421/dsh-japanese) and choose 日本語. Until that pack is installed, DSH lists 中文 and English, and Glass UI stays in English. zh-CN uses the Chinese dictionary bundled here.
+This plugin registers English, Japanese and Chinese dictionaries and does not add languages. DSH 0.2.2-alpha.2 includes 日本語 in its language menu; select it to use the bundled Japanese dictionary. On older DSH releases that only list 中文 and English, install [dsh-japanese](https://github.com/Aero123421/dsh-japanese) to add 日本語. zh-CN uses the Chinese dictionary bundled here.
 
 The [release tarball](https://github.com/Aero123421/dsh-glassui/releases/latest) can also be installed by its URL. Both distributions include the compiled plugin.
 
