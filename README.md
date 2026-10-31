@@ -25,13 +25,13 @@
 
 ## Install
 
-Requires DSH `>=0.2.0-rc.2 <0.3.0-0`. DSH admits prereleases in that range, including 0.2.1-alpha.3 and later 0.2.x prereleases, and excludes 0.3.0 prereleases. An empty peer range, a wildcard (`*`, `x`, `>=0`), a range missing either end (`<0.3.0-0`, `<=0.2.9`, `<0.2.2`), or a range that leaves the running line (`>=0.0.0 <0.3.0-0`, `<99`, `^0`, or `<0.3.0` on 0.2) is treated as compatibility-unknown. Browser-tested with 0.2.0-rc.2 and 0.2.1-rc.2 (`next`); token and API contracts also checked on 0.2.1-alpha.5 (`alpha`).
+Requires DSH `>=0.2.0-rc.2 <0.3.0-0`. DSH admits prereleases in that range, including 0.2.1-alpha.3 and later 0.2.x prereleases, and excludes 0.3.0 prereleases. An empty peer range, a wildcard (`*`, `x`, `>=0`), a range missing either end (`<0.3.0-0`, `<=0.2.9`, `<0.2.2`), or a range that leaves the running line (`>=0.0.0 <0.3.0-0`, `<99`, `^0`, or `<0.3.0` on 0.2) is treated as compatibility-unknown. Browser-tested with 0.2.0-rc.2 and 0.2.1-rc.2; token and API contracts also checked on 0.2.1-alpha.5. For later coverage, see [compatibility](https://github.com/Aero123421/dsh-glassui/blob/main/docs/compatibility.md).
 
-1. In DSH Web, open **Plugins → Add plugin** and enter `github:Aero123421/dsh-glassui#v0.2.6`.
+1. In DSH Web, open **Plugins → Add plugin** and enter `github:Aero123421/dsh-glassui#v0.2.7`.
 2. Or install from a terminal:
 
    ```sh
-   dsh plugin --profile web add github:Aero123421/dsh-glassui#v0.2.6
+   dsh plugin --profile web add github:Aero123421/dsh-glassui#v0.2.7
    ```
 
 3. Restart DSH if it asks you to, then reload DSH Web. The glass is on by default; **Settings → Glass UI** has the controls.
@@ -77,7 +77,7 @@ The Host checks a fixed GitHub stable release, DSH peer ranges, bounded download
 
 An operation ID reconciles a lost response without installing again. The UI checks installed and running versions before reporting success, or asks for a Host restart when needed. A manager refusal leaves the current installation in place; use the manual update instructions rather than removing it.
 
-**Updating from v0.2.3 or earlier:** stop DSH, run the install command above for v0.2.6, then start DSH and reload Web. This avoids the old updater’s remove-then-install path. Old recovery journals remain readable while the plugin is installed; if an old update already left the plugin absent, install it through Plugins or the CLI.
+**Updating from v0.2.3 or earlier:** stop DSH, run the install command above for v0.2.7, then start DSH and reload Web. This avoids the old updater’s remove-then-install path. Old recovery journals remain readable while the plugin is installed; if an old update already left the plugin absent, install it through Plugins or the CLI.
 
 ## For plugin authors
 
