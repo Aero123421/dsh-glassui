@@ -651,6 +651,33 @@ describe(`dsh-glassui on DSH ${dshVersion}`, () => {
     }
   })
 
+  it('keeps an uncommitted wallpaper URL when the settings width crosses the narrow layout', async () => {
+    const { page, errors, close } = await open()
+    try {
+      await openSettings(page)
+      await page.getByRole('radio', { name: 'Custom', exact: true }).click()
+      const url = page.getByLabel('Image URL', { exact: true })
+      await url.fill('https://example.com/wall.jpg')
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.locator('.glassui-narrow').waitFor()
+      assert.equal(await page.getByLabel('Image URL', { exact: true }).inputValue(), 'https://example.com/wall.jpg')
+      assert.equal(
+        await page.getByLabel('Image URL', { exact: true }).evaluate(element => element === document.activeElement),
+        true,
+        'focus stays in the URL field',
+      )
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await page.waitForFunction(() => !document.querySelector('.glassui-narrow'))
+      assert.equal(await page.getByLabel('Image URL', { exact: true }).inputValue(), 'https://example.com/wall.jpg')
+      assert.equal(await page.evaluate(() => window.__DSH_GLASSUI_DEBUG__.settings().wallpaperUrl), '')
+      await page.getByRole('radio', { name: 'Automatic', exact: true }).click()
+      await page.waitForFunction(() => window.__DSH_GLASSUI_DEBUG__.settings().wallpaper === 'auto')
+      assert.deepEqual(errors, [])
+    } finally {
+      await close()
+    }
+  })
+
   it('offers manual copying when the clipboard is unavailable and omits custom image URLs', async () => {
     const { page, errors, close } = await open()
     try {

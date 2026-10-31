@@ -1,4 +1,39 @@
 const STORAGE = 'dsh-glassui:update'
+
+const NAMED_REASONS = new Set([
+  'manager-unavailable',
+  'read-only',
+  'source',
+  'metadata',
+  'asset',
+  'channel',
+  'incompatible',
+  'compatibility-unknown',
+  'busy',
+  'checksum',
+  'redirect',
+  'size',
+  'stale-candidate',
+  'release-unavailable',
+  'storage',
+  'interrupted',
+  'settings',
+  'profile',
+  'manual-update',
+  'reinstall',
+  'restored',
+  'restore-failed',
+  'restore-pending',
+  'restore-offer',
+  'restore-limit',
+])
+
+/** Map a rejected RPC code onto a settings reason, or `network` when it is unnamed. */
+export function rejectedReason(error) {
+  const match = /^dsh-glassui\/([a-z0-9-]+)$/.exec(String(error?.message ?? ''))
+  const reason = match?.[1]
+  return reason && NAMED_REASONS.has(reason) ? reason : 'network'
+}
 export class UpdateController {
   constructor(connection, settleSettings, settings, storage) {
     if (storage === undefined) {
@@ -133,7 +168,7 @@ export class UpdateController {
       this.publish({
         ...this.state,
         status: 'unknown',
-        reason: String(error.message).endsWith('/profile') ? 'profile' : 'network',
+        reason: rejectedReason(error),
       })
     }
   }
@@ -194,13 +229,7 @@ export class UpdateController {
         this.publish({
           ...this.state,
           status: error.rejected ? 'failed' : 'unknown',
-          reason: error.message.endsWith('/busy')
-            ? 'busy'
-            : error.message.endsWith('/profile')
-              ? 'profile'
-              : error.message.endsWith('/settings')
-                ? 'settings'
-                : 'network',
+          reason: rejectedReason(error),
         })
     } finally {
       release()
